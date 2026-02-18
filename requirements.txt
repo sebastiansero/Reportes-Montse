@@ -1,9 +1,9 @@
 pandas
 openpyxl
-streamlit
+streamlit>=1.45.0
 pyyaml
 pandera
 loguru
 xlsxwriter
-pytest
 plotly
+altair>=5.0.0,<6.0.0
