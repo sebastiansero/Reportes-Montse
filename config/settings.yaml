@@ -1,0 +1,69 @@
+app_name: "Reporteador Comercial Enterprise"
+version: "1.0.0"
+
+files:
+  input_extensions: [".xlsx", ".xls"]
+  output_extension: ".xlsx"
+
+reports:
+  emision_mensual:
+    name: "Emisión mensual"
+    sheet_name: "Emisión"
+    columns:
+      - name: "Fecha emisión"
+        type: "datetime"
+        required: true
+        aliases: ["F. Emisión", "F.Emision", "Fecha de Emision"]
+      - name: "Número de emisión"
+        type: "str"
+        required: true
+      - name: "Número de póliza"
+        type: "str"
+        required: true
+        aliases: ["Poliza", "No. Poliza"]
+      - name: "Tipo de negocio"
+        type: "str"
+        required: false
+      - name: "Fecha inicio vigencia"
+        type: "datetime"
+        required: true
+      - name: "Prima total"
+        type: "float"
+        required: true
+        aliases: ["Prima neta", "Importe"]
+      - name: "Ejecutivo"
+        type: "str"
+        required: false
+      - name: "Agente"
+        type: "str"
+        required: false
+        aliases: ["Nombre de agente", "Código de agente"]
+
+  renovaciones:
+    name: "Renovaciones"
+    sheet_name: "Renovaciones"
+    columns:
+      - name: "Fecha vencimiento"
+        type: "datetime"
+        required: true
+      - name: "Póliza"
+        type: "str"
+        required: true
+      - name: "Renovada"
+        type: "str"
+        required: true
+        allowed_values: ["Si", "No", "Pendiente"]
+
+  cotizaciones:
+    name: "Cotizaciones"
+    sheet_name: "Cotizaciones"
+    columns:
+      - name: "Ejecutivo de cuenta"
+        type: "str"
+        required: true
+      - name: "Fecha solicitud"
+        type: "datetime"
+        required: true
+      - name: "Estatus"
+        type: "str"
+        required: true
