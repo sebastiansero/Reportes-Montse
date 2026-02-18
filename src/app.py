@@ -24,6 +24,71 @@ loader = ExcelLoader(config)
 processor = ReportProcessor(config)
 filler = TemplateFiller()
 
+
+# ── Authentication ────────────────────────────────────────────────────
+def check_credentials(username: str, password: str) -> bool:
+    """Verify credentials against st.secrets or fallback."""
+    try:
+        passwords = st.secrets.get("passwords", {})
+        if username in passwords and passwords[username] == password:
+            return True
+    except Exception:
+        pass
+    # Fallback hardcoded (remove in production)
+    fallback = {"montse": "montse2026", "admin": "admin2026"}
+    return fallback.get(username) == password
+
+def render_login():
+    """Render the login page."""
+    st.markdown("""
+    <style>
+    .login-container {
+        max-width: 400px;
+        margin: 5rem auto;
+        padding: 2.5rem;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+    }
+    .login-title {
+        text-align: center;
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #003366;
+        margin-bottom: 0.3rem;
+    }
+    .login-subtitle {
+        text-align: center;
+        color: #888;
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown("")
+        st.markdown("")
+        st.markdown('<div class="login-title">📊 Reporteador Enterprise</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-subtitle">Ingrese sus credenciales para continuar</div>', unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            username = st.text_input("👤 Usuario", placeholder="Ingrese su usuario")
+            password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingrese su contraseña")
+            submitted = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+            
+            if submitted:
+                if check_credentials(username, password):
+                    st.session_state.authenticated = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+        
+        st.markdown("")
+        st.caption("© 2026 Reporteador Enterprise · Acceso restringido")
+
 # ── Page Config ───────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Reporteador Comercial Enterprise",
@@ -189,6 +254,10 @@ st.markdown("""
 
 
 # ── Session State Init ────────────────────────────────────────────────
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = ""
 if 'processed_df' not in st.session_state:
     st.session_state.processed_df = None
 if 'raw_df' not in st.session_state:
@@ -201,6 +270,11 @@ if 'kpis' not in st.session_state:
     st.session_state.kpis = {}
 if 'file_details' not in st.session_state:
     st.session_state.file_details = []
+
+# ── Auth Gate ─────────────────────────────────────────────────────────
+if not st.session_state.authenticated:
+    render_login()
+    st.stop()
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -329,6 +403,16 @@ with st.sidebar:
         <div class="sidebar-version">v1.0.0</div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # User info & logout
+    user_col, logout_col = st.columns([3, 1])
+    with user_col:
+        st.markdown(f"👤 **{st.session_state.username}**")
+    with logout_col:
+        if st.button("🚪", help="Cerrar sesión"):
+            st.session_state.authenticated = False
+            st.session_state.username = ""
+            st.rerun()
     
     st.markdown("##### Tipo de Reporte")
     report_keys = list(config.reports.keys())
