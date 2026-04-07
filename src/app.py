@@ -2,7 +2,6 @@ import os
 import sys
 from datetime import datetime
 
-import pandas as pd
 import plotly.express as px
 import streamlit as st
 
@@ -22,89 +21,23 @@ processor = ReportProcessor(config)
 filler = TemplateFiller()
 
 
-HOME_MODES = [
-    {
-        "key": "emisiones",
-        "label": "Emisiones",
-        "report_key": "emision_mensual",
-        "icon": "📤",
-        "description": "Convierte el archivo masivo de emisiones y cancelaciones al formato operativo.",
-    },
-    {
-        "key": "renovaciones",
-        "label": "Renovaciones",
-        "report_key": "renovaciones",
-        "icon": "🔁",
-        "description": "Genera el control de renovaciones listo para seguimiento y actualización.",
-    },
-    {
-        "key": "vencimientos",
-        "label": "Vencimientos",
-        "report_key": "vencimientos",
-        "icon": "📅",
-        "description": "Estandariza el listado de pólizas por vencer para revisión comercial.",
-    },
-    {
-        "key": "cotizaciones",
-        "label": "Cotizaciones",
-        "report_key": "cotizaciones",
-        "icon": "📄",
-        "description": "Agrupa los PDF de cotización y extrae agente, unidad, vigencia y prima.",
-    },
-    {
-        "key": "conjunto",
-        "label": "Conjunto",
-        "report_key": None,
-        "icon": "🧩",
-        "description": "Procesa emisiones, vencimientos y cotizaciones en una sola corrida.",
-    },
+MODES = [
+    {"key": "emisiones", "label": "Emisiones", "report_key": "emision_mensual"},
+    {"key": "renovaciones", "label": "Renovaciones", "report_key": "renovaciones"},
+    {"key": "vencimientos", "label": "Vencimientos", "report_key": "vencimientos"},
+    {"key": "cotizaciones", "label": "Cotizaciones", "report_key": "cotizaciones"},
+    {"key": "conjunto", "label": "Conjunto", "report_key": None},
 ]
-
-MODE_MAP = {mode["key"]: mode for mode in HOME_MODES}
-
-
-def current_mode():
-    return MODE_MAP[st.session_state.active_mode]
+MODE_MAP = {mode["key"]: mode for mode in MODES}
 
 
-def current_report_key():
-    return current_mode()["report_key"]
+def get_mode(mode_key=None):
+    return MODE_MAP[mode_key or st.session_state.active_mode]
 
 
-def current_report_config():
-    report_key = current_report_key()
-    return config.get_report_config(report_key) if report_key else None
-
-
-def reset_single_results():
-    st.session_state.processed_df = None
-    st.session_state.raw_df = None
-    st.session_state.errors = []
-    st.session_state.kpis = {}
-    st.session_state.file_details = []
-    st.session_state.generated_excel = None
-    st.session_state.generated_excel_name = ""
-    st.session_state.generated_csv = None
-    st.session_state.generated_csv_name = ""
-    st.session_state.step = 1
-
-
-def reset_bundle_results():
-    st.session_state.bundle_results = {}
-    st.session_state.bundle_errors = []
-    st.session_state.bundle_excel = None
-    st.session_state.bundle_excel_name = ""
-
-
-def reset_all_results():
-    reset_single_results()
-    reset_bundle_results()
-
-
-def activate_mode(mode_key: str):
-    if st.session_state.active_mode != mode_key:
-        st.session_state.active_mode = mode_key
-        reset_all_results()
+def get_report_config(mode_key=None):
+    mode = get_mode(mode_key)
+    return config.get_report_config(mode["report_key"]) if mode["report_key"] else None
 
 
 def initialize_state():
@@ -113,23 +46,40 @@ def initialize_state():
         "username": "",
         "active_mode": "emisiones",
         "processed_df": None,
-        "raw_df": None,
-        "errors": [],
-        "step": 1,
+        "messages": [],
         "kpis": {},
-        "file_details": [],
-        "generated_excel": None,
-        "generated_excel_name": "",
-        "generated_csv": None,
-        "generated_csv_name": "",
+        "download_bytes": None,
+        "download_name": "",
         "bundle_results": {},
-        "bundle_errors": [],
-        "bundle_excel": None,
-        "bundle_excel_name": "",
+        "bundle_messages": [],
+        "bundle_download": None,
+        "bundle_download_name": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def reset_single():
+    st.session_state.processed_df = None
+    st.session_state.messages = []
+    st.session_state.kpis = {}
+    st.session_state.download_bytes = None
+    st.session_state.download_name = ""
+
+
+def reset_bundle():
+    st.session_state.bundle_results = {}
+    st.session_state.bundle_messages = []
+    st.session_state.bundle_download = None
+    st.session_state.bundle_download_name = ""
+
+
+def activate_mode(mode_key):
+    if st.session_state.active_mode != mode_key:
+        st.session_state.active_mode = mode_key
+        reset_single()
+        reset_bundle()
 
 
 def check_credentials(username: str, password: str) -> bool:
@@ -139,6 +89,7 @@ def check_credentials(username: str, password: str) -> bool:
             return True
     except Exception:
         pass
+
     fallback = {"montse": "montse2026", "admin": "admin2026"}
     return fallback.get(username) == password
 
@@ -146,46 +97,75 @@ def check_credentials(username: str, password: str) -> bool:
 def render_login():
     st.markdown(
         """
-        <style>
-        .login-title {
-            text-align:center;
-            font-size:2rem;
-            font-weight:700;
-            color:#12355b;
-            margin-top:4rem;
-        }
-        .login-subtitle {
-            text-align:center;
-            color:#6b7280;
-            margin-bottom:1.5rem;
-        }
-        </style>
+        <div class="login-brand">
+            <div class="login-kicker">Montse</div>
+            <h1>Reportes</h1>
+        </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="login-title">Reporteador Enterprise</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-subtitle">Ingrese sus credenciales para continuar</div>', unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 1.2, 1])
-    with col2:
+    left, center, right = st.columns([1.3, 1, 1.3])
+    with center:
         with st.form("login_form"):
             username = st.text_input("Usuario")
-            password = st.text_input("Contraseña", type="password")
-            submitted = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+            password = st.text_input("Contrasena", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
             if submitted:
                 if check_credentials(username, password):
                     st.session_state.authenticated = True
                     st.session_state.username = username
                     st.rerun()
-                st.error("Usuario o contraseña incorrectos.")
+                st.error("Credenciales invalidas.")
+
+
+def render_header():
+    left, right = st.columns([6, 1.35], gap="small")
+
+    with left:
+        st.markdown(
+            """
+            <div class="hero">
+                <div class="hero-kicker">Montse</div>
+                <h1>Reportes</h1>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown(f"<div class='account-chip'>{st.session_state.username}</div>", unsafe_allow_html=True)
+        if st.button("Salir", key="logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.username = ""
+            reset_single()
+            reset_bundle()
+            st.rerun()
+
+
+def render_mode_selector():
+    cols = st.columns(len(MODES), gap="small")
+    active_mode = st.session_state.active_mode
+
+    for col, mode in zip(cols, MODES):
+        with col:
+            if st.button(
+                mode["label"],
+                key=f"nav_{mode['key']}",
+                type="primary" if mode["key"] == active_mode else "secondary",
+                use_container_width=True,
+            ):
+                activate_mode(mode["key"])
+                st.rerun()
 
 
 def format_bytes(size):
+    value = float(size)
     for unit in ["B", "KB", "MB", "GB"]:
-        if size < 1024:
-            return f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{size:.1f} TB"
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
 
 
 def calculate_quality_score(df, report_type):
@@ -196,464 +176,423 @@ def calculate_quality_score(df, report_type):
     if not report_config:
         return 0
 
-    required_cols = [c["name"] for c in report_config.get("columns", []) if c.get("required")]
+    required_cols = [column["name"] for column in report_config.get("columns", []) if column.get("required")]
     total_checks = 0
     passed_checks = 0
 
-    for col in required_cols:
+    for column in required_cols:
         total_checks += 1
-        if col in df.columns:
+        if column in df.columns:
             passed_checks += 1
 
-    for col in required_cols:
-        if col in df.columns:
+    for column in required_cols:
+        if column in df.columns:
             total_checks += 1
-            null_pct = df[col].isnull().mean()
-            if null_pct < 0.05:
+            null_ratio = df[column].isnull().mean()
+            if null_ratio < 0.05:
                 passed_checks += 1
-            elif null_pct < 0.2:
+            elif null_ratio < 0.2:
                 passed_checks += 0.5
 
     total_checks += 1
-    dup_pct = df.duplicated().mean()
-    if dup_pct < 0.01:
+    duplicate_ratio = df.duplicated().mean()
+    if duplicate_ratio < 0.01:
         passed_checks += 1
-    elif dup_pct < 0.1:
+    elif duplicate_ratio < 0.1:
         passed_checks += 0.5
 
-    return round((passed_checks / total_checks) * 100) if total_checks > 0 else 0
+    return round((passed_checks / total_checks) * 100) if total_checks else 0
 
 
-def render_step_indicator(current):
-    labels = [("1", "Cargar"), ("2", "Analizar"), ("3", "Exportar")]
-    html = ['<div style="display:flex;gap:.6rem;justify-content:center;margin:1rem 0 2rem 0;">']
-    for num, label in labels:
-        step_num = int(num)
-        if step_num < current:
-            bg, fg, icon = "#d1fae5", "#065f46", "OK"
-        elif step_num == current:
-            bg, fg, icon = "#12355b", "#ffffff", "ACT"
-        else:
-            bg, fg, icon = "#e5e7eb", "#6b7280", "..."
-        html.append(
-            f'<div style="padding:.55rem 1rem;border-radius:999px;background:{bg};color:{fg};font-size:.85rem;font-weight:600;">'
-            f"{icon} {label}</div>"
-        )
-    html.append("</div>")
-    st.markdown("".join(html), unsafe_allow_html=True)
-
-
-def render_kpi_cards(kpis):
-    cols = st.columns(len(kpis))
-    for col, (label, value) in zip(cols, kpis.items()):
-        if isinstance(value, float):
-            display = f"{value:,.2f}"
-        elif isinstance(value, int):
-            display = f"{value:,}"
-        else:
-            display = str(value)
-        col.metric(label, display)
-
-
-def render_quality_score(score):
-    if score >= 80:
-        color, label = "#16a34a", "Excelente"
-    elif score >= 50:
-        color, label = "#d97706", "Aceptable"
-    else:
-        color, label = "#dc2626", "Revisar"
-
-    st.markdown(
-        f"""
-        <div style="background:white;padding:1rem 1.2rem;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin:1rem 0;">
-            <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:.5rem;">
-                <span>Calidad de Datos</span>
-                <span style="color:{color};">{score}% · {label}</span>
-            </div>
-            <div style="height:12px;background:#e5e7eb;border-radius:999px;overflow:hidden;">
-                <div style="width:{score}%;height:100%;background:{color};"></div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_mode_buttons():
-    st.markdown("### Home")
-    cols = st.columns(len(HOME_MODES))
-    for col, mode in zip(cols, HOME_MODES):
-        with col:
-            st.markdown(
-                f"""
-                <div style="background:white;border:1px solid #dbe4ee;border-radius:16px;padding:1rem;min-height:148px;
-                            box-shadow:0 8px 24px rgba(18,53,91,.06);margin-bottom:.5rem;">
-                    <div style="font-size:1.8rem;">{mode['icon']}</div>
-                    <div style="font-weight:700;color:#12355b;margin:.4rem 0;">{mode['label']}</div>
-                    <div style="font-size:.84rem;color:#5b6470;">{mode['description']}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button(mode["label"], key=f"mode_{mode['key']}", use_container_width=True):
-                activate_mode(mode["key"])
-                st.rerun()
-
-
-def render_file_cards(files):
-    st.markdown(f"**{len(files)} archivo(s) cargado(s)**")
-    for file_obj in files:
-        st.markdown(
-            f"""
-            <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:.9rem 1rem;margin-bottom:.5rem;
-                        display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <div style="font-weight:600;">{file_obj.name}</div>
-                    <div style="font-size:.82rem;color:#6b7280;">{format_bytes(file_obj.size)}</div>
-                </div>
-                <div style="color:#16a34a;font-weight:700;">Listo</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-def render_dataset_preview(df, key_prefix):
-    if df is None or df.empty:
+def render_file_list(files):
+    if not files:
         return
 
-    tabs = st.tabs(["Distribución", "Composición", "Datos"])
+    rows = "".join(
+        f"<div class='file-pill'><span>{file.name}</span><span>{format_bytes(file.size)}</span></div>" for file in files
+    )
+    st.markdown(f"<div class='file-list'>{rows}</div>", unsafe_allow_html=True)
+
+
+def render_messages(messages):
+    for message in messages:
+        lowered = message.lower()
+        if "plantilla de salida" in lowered:
+            st.info(message)
+        else:
+            st.warning(message)
+
+
+def render_metrics_block(df, report_key):
+    metrics = {
+        "Registros": len(df),
+        "Columnas": len(df.columns),
+        "Calidad": f"{calculate_quality_score(df, report_key)}%",
+    }
+    metrics.update(st.session_state.kpis)
+
+    cols = st.columns(min(len(metrics), 4), gap="small")
+    for col, (label, value) in zip(cols, metrics.items()):
+        col.metric(label, f"{value:,.2f}" if isinstance(value, float) else str(value))
+
+
+def render_preview(df, key_prefix):
+    tabs = st.tabs(["Resumen", "Datos"])
     text_cols = df.select_dtypes(include=["object"]).columns.tolist()
-    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
 
     with tabs[0]:
         if text_cols:
-            bar_col = st.selectbox("Agrupar por", text_cols, key=f"{key_prefix}_bar_col")
-            counts = df[bar_col].replace("", "Sin dato").value_counts().reset_index()
-            counts.columns = [bar_col, "Cantidad"]
-            fig = px.bar(counts.head(15), x=bar_col, y="Cantidad", color="Cantidad", color_continuous_scale="Blues")
-            fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("<div class='field-label'>Vista por</div>", unsafe_allow_html=True)
+            chart_col = st.selectbox(
+                "Vista por",
+                text_cols,
+                key=f"{key_prefix}_chart",
+                label_visibility="collapsed",
+            )
+            counts = df[chart_col].replace("", "Sin dato").value_counts().reset_index()
+            counts.columns = [chart_col, "Cantidad"]
+            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad")
+            fig.update_traces(marker_color="#183650", marker_line_color="#183650")
+            fig.update_layout(
+                margin=dict(l=0, r=0, t=10, b=0),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis_title=None,
+                yaxis_title=None,
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
-            st.info("No hay columnas de texto para esta visualización.")
+            st.caption("Sin vista disponible.")
 
     with tabs[1]:
-        if text_cols:
-            pie_col = st.selectbox("Agrupar por", text_cols, key=f"{key_prefix}_pie_col")
-            if numeric_cols:
-                pie_value = st.selectbox("Valor", numeric_cols, key=f"{key_prefix}_pie_val")
-                fig = px.pie(df, names=pie_col, values=pie_value, color_discrete_sequence=px.colors.sequential.Blues_r)
-            else:
-                counts = df[pie_col].replace("", "Sin dato").value_counts().reset_index()
-                counts.columns = [pie_col, "Cantidad"]
-                fig = px.pie(counts, names=pie_col, values="Cantidad", color_discrete_sequence=px.colors.sequential.Blues_r)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para la composición.")
-
-    with tabs[2]:
-        search = st.text_input("Buscar", key=f"{key_prefix}_search", placeholder="Filtrar registros...")
+        search = st.text_input(
+            "Buscar",
+            key=f"{key_prefix}_search",
+            placeholder="Filtrar...",
+            label_visibility="collapsed",
+        )
         display_df = df
         if search:
             mask = df.apply(lambda row: row.astype(str).str.contains(search, case=False, na=False).any(), axis=1)
-            display_df = df[mask]
-            st.caption(f"Mostrando {len(display_df)} de {len(df)} registros")
-        st.dataframe(display_df, use_container_width=True, height=420)
+            display_df = df.loc[mask]
+        st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
 
 
-def render_single_export(report_key, label):
-    report_cfg = config.get_report_config(report_key)
-    processed_df = st.session_state.processed_df
-    if processed_df is None or processed_df.empty or not report_cfg:
+def build_report_file(df, report_key, label):
+    output = filler.fill_template(df, config.get_report_config(report_key))
+    st.session_state.download_bytes = output.getvalue()
+    st.session_state.download_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+
+def process_single(files, mode):
+    reset_single()
+    report_key = mode["report_key"]
+    raw_df, messages = loader.load_and_validate(files, report_key)
+    st.session_state.messages = messages
+    if raw_df.empty:
         return
 
-    st.divider()
-    st.markdown("### Exportación")
-
-    if st.button("Preparar Excel", key=f"prepare_excel_{report_key}", type="primary", use_container_width=True):
-        output = filler.fill_template(processed_df, report_cfg)
-        st.session_state.generated_excel = output.getvalue()
-        st.session_state.generated_excel_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        st.session_state.generated_csv = processed_df.to_csv(index=False).encode("utf-8")
-        st.session_state.generated_csv_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
-        st.session_state.step = 3
-
-    if st.session_state.generated_excel:
-        st.download_button(
-            "Descargar Excel",
-            data=st.session_state.generated_excel,
-            file_name=st.session_state.generated_excel_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
-    if st.session_state.generated_csv:
-        st.download_button(
-            "Descargar CSV",
-            data=st.session_state.generated_csv,
-            file_name=st.session_state.generated_csv_name,
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-
-def process_single_flow(files, mode_def):
-    report_key = mode_def["report_key"]
-    reset_single_results()
-    df, errors = loader.load_and_validate(files, report_key)
-    st.session_state.errors = errors
-
-    if df.empty:
-        return
-
-    processed_df = processor.process_data(df, report_key)
-    st.session_state.raw_df = df
+    processed_df = processor.process_data(raw_df, report_key)
     st.session_state.processed_df = processed_df
     st.session_state.kpis = KPIEngine.calculate(processed_df, report_key)
-    st.session_state.file_details = [{"name": f.name, "size": f.size, "rows": "—"} for f in files]
-    st.session_state.step = 2
+    build_report_file(processed_df, report_key, mode["label"])
 
 
 def render_single_flow():
-    mode_def = current_mode()
-    report_key = mode_def["report_key"]
-    report_cfg = current_report_config()
+    mode = get_mode()
+    report_cfg = get_report_config()
     allowed_extensions = [ext.lstrip(".") for ext in report_cfg.get("input_extensions", [".xlsx", ".xls"])]
-    uploader_help = (
-        "Puede subir múltiples archivos PDF. El sistema agrupará las cotizaciones automáticamente."
-        if allowed_extensions == ["pdf"]
-        else "Puede subir múltiples archivos Excel del mismo tipo."
-    )
 
-    st.markdown(f"### {mode_def['icon']} {mode_def['label']}")
-    st.caption(mode_def["description"])
-
+    st.markdown(f"<h2 class='section-title'>{mode['label']}</h2>", unsafe_allow_html=True)
     files = st.file_uploader(
-        f"Seleccione archivos para {mode_def['label']}",
+        "Archivos",
         type=allowed_extensions,
         accept_multiple_files=True,
-        key=f"uploader_{mode_def['key']}",
-        help=uploader_help,
+        key=f"uploader_{mode['key']}",
+        label_visibility="collapsed",
     )
+    render_file_list(files)
 
-    if files:
-        render_file_cards(files)
-        if st.button(f"Procesar {mode_def['label']}", key=f"process_{mode_def['key']}", type="primary", use_container_width=True):
-            with st.spinner("Procesando información..."):
-                process_single_flow(files, mode_def)
-            st.rerun()
+    if st.button("Generar reporte", key=f"generate_{mode['key']}", type="primary", use_container_width=True):
+        if not files:
+            reset_single()
+            st.session_state.messages = ["Carga al menos un archivo."]
+        else:
+            with st.spinner("Generando..."):
+                process_single(files, mode)
 
-    if st.session_state.errors:
-        st.warning("Se detectaron observaciones durante el procesamiento.")
-        for error in st.session_state.errors:
-            st.warning(error)
+    if st.session_state.messages:
+        render_messages(st.session_state.messages)
 
-    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-        processed_df = st.session_state.processed_df
-        st.divider()
-        st.markdown("### Dashboard")
-        render_quality_score(calculate_quality_score(processed_df, report_key))
-        if st.session_state.kpis:
-            render_kpi_cards(st.session_state.kpis)
-        render_dataset_preview(processed_df, mode_def["key"])
-        render_single_export(report_key, mode_def["label"])
-
-
-def process_bundle(emision_files, vencimiento_files, cotizacion_files):
-    reset_bundle_results()
-
-    results = {}
-    errors = []
-
-    if emision_files:
-        df, issue_list = loader.load_and_validate(emision_files, "emision_mensual")
-        errors.extend([f"Emisiones: {item}" for item in issue_list])
-        if not df.empty:
-            results["emision_mensual"] = processor.process_data(df, "emision_mensual")
-
-    if vencimiento_files:
-        df, issue_list = loader.load_and_validate(vencimiento_files, "vencimientos")
-        errors.extend([f"Vencimientos: {item}" for item in issue_list])
-        if not df.empty:
-            results["vencimientos"] = processor.process_data(df, "vencimientos")
-            results["renovaciones"] = processor.process_data(df, "renovaciones")
-
-    if cotizacion_files:
-        df, issue_list = loader.load_and_validate(cotizacion_files, "cotizaciones")
-        errors.extend([f"Cotizaciones: {item}" for item in issue_list])
-        if not df.empty:
-            results["cotizaciones"] = processor.process_data(df, "cotizaciones")
-
-    st.session_state.bundle_results = results
-    st.session_state.bundle_errors = errors
-    st.session_state.step = 2 if results else 1
-
-
-def render_bundle_summary():
-    bundle = st.session_state.bundle_results
-    if not bundle:
-        return
-
-    st.divider()
-    st.markdown("### Resumen Conjunto")
-
-    cols = st.columns(len(bundle))
-    for col, (report_key, df) in zip(cols, bundle.items()):
-        label = config.get_report_config(report_key)["name"]
-        col.metric(label, f"{len(df):,}")
-
-    tabs = st.tabs([config.get_report_config(report_key)["name"] for report_key in bundle.keys()])
-    for tab, (report_key, df) in zip(tabs, bundle.items()):
-        with tab:
-            render_dataset_preview(df, f"bundle_{report_key}")
-
-
-def render_bundle_export():
-    bundle = st.session_state.bundle_results
-    if not bundle:
-        return
-
-    st.divider()
-    st.markdown("### Exportación Conjunta")
-
-    if st.button("Preparar Workbook Conjunto", key="prepare_bundle", type="primary", use_container_width=True):
-        output = filler.fill_combined_report(bundle, config)
-        st.session_state.bundle_excel = output.getvalue()
-        st.session_state.bundle_excel_name = f"Reporte_Conjunto_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        st.session_state.step = 3
-
-    if st.session_state.bundle_excel:
+    if st.session_state.download_bytes:
         st.download_button(
-            "Descargar Workbook Conjunto",
-            data=st.session_state.bundle_excel,
-            file_name=st.session_state.bundle_excel_name,
+            "Descargar reporte",
+            data=st.session_state.download_bytes,
+            file_name=st.session_state.download_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        render_metrics_block(st.session_state.processed_df, mode["report_key"])
+        render_preview(st.session_state.processed_df, mode["key"])
 
-def render_combined_flow():
-    st.markdown("### 🧩 Flujo Conjunto")
-    st.caption("Cargue cada fuente una sola vez. El sistema generará vencimientos, renovaciones, emisiones y cotizaciones dentro del mismo workbook.")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
+def build_bundle_file(datasets):
+    output = filler.fill_combined_report(datasets, config)
+    st.session_state.bundle_download = output.getvalue()
+    st.session_state.bundle_download_name = f"Reporte_Conjunto_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+
+def process_bundle(emision_files, vencimiento_files, cotizacion_files):
+    reset_bundle()
+    results = {}
+    messages = []
+
+    if emision_files:
+        raw_df, issues = loader.load_and_validate(emision_files, "emision_mensual")
+        messages.extend([f"Emisiones: {item}" for item in issues])
+        if not raw_df.empty:
+            results["emision_mensual"] = processor.process_data(raw_df, "emision_mensual")
+
+    if vencimiento_files:
+        raw_df, issues = loader.load_and_validate(vencimiento_files, "vencimientos")
+        messages.extend([f"Vencimientos: {item}" for item in issues])
+        if not raw_df.empty:
+            results["vencimientos"] = processor.process_data(raw_df, "vencimientos")
+            results["renovaciones"] = processor.process_data(raw_df, "renovaciones")
+
+    if cotizacion_files:
+        raw_df, issues = loader.load_and_validate(cotizacion_files, "cotizaciones")
+        messages.extend([f"Cotizaciones: {item}" for item in issues])
+        if not raw_df.empty:
+            results["cotizaciones"] = processor.process_data(raw_df, "cotizaciones")
+
+    st.session_state.bundle_results = results
+    st.session_state.bundle_messages = messages
+    if results:
+        build_bundle_file(results)
+
+
+def render_bundle():
+    st.markdown("<h2 class='section-title'>Conjunto</h2>", unsafe_allow_html=True)
+    cols = st.columns(3, gap="small")
+
+    with cols[0]:
+        st.markdown("<div class='bucket-title'>Emisiones</div>", unsafe_allow_html=True)
         emision_files = st.file_uploader(
             "Emisiones",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key="bundle_emisiones",
+            key="bundle_em",
+            label_visibility="collapsed",
         )
-        if emision_files:
-            render_file_cards(emision_files)
+        render_file_list(emision_files)
 
-    with col2:
+    with cols[1]:
+        st.markdown("<div class='bucket-title'>Vencimientos</div>", unsafe_allow_html=True)
         vencimiento_files = st.file_uploader(
-            "Vencimientos / Renovaciones",
+            "Vencimientos",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key="bundle_vencimientos",
+            key="bundle_ven",
+            label_visibility="collapsed",
         )
-        if vencimiento_files:
-            render_file_cards(vencimiento_files)
+        render_file_list(vencimiento_files)
 
-    with col3:
+    with cols[2]:
+        st.markdown("<div class='bucket-title'>Cotizaciones</div>", unsafe_allow_html=True)
         cotizacion_files = st.file_uploader(
-            "Cotizaciones PDF",
+            "Cotizaciones",
             type=["pdf"],
             accept_multiple_files=True,
-            key="bundle_cotizaciones",
+            key="bundle_cot",
+            label_visibility="collapsed",
         )
-        if cotizacion_files:
-            render_file_cards(cotizacion_files)
+        render_file_list(cotizacion_files)
 
-    if st.button("Procesar Todo", key="process_bundle", type="primary", use_container_width=True):
-        with st.spinner("Procesando flujo conjunto..."):
-            process_bundle(emision_files or [], vencimiento_files or [], cotizacion_files or [])
-        st.rerun()
+    if st.button("Generar conjunto", key="generate_bundle", type="primary", use_container_width=True):
+        if not any([emision_files, vencimiento_files, cotizacion_files]):
+            reset_bundle()
+            st.session_state.bundle_messages = ["Carga al menos un archivo."]
+        else:
+            with st.spinner("Generando..."):
+                process_bundle(emision_files or [], vencimiento_files or [], cotizacion_files or [])
 
-    if st.session_state.bundle_errors:
-        st.warning("Se detectaron observaciones en el flujo conjunto.")
-        for error in st.session_state.bundle_errors:
-            st.warning(error)
+    if st.session_state.bundle_messages:
+        render_messages(st.session_state.bundle_messages)
 
-    render_bundle_summary()
-    render_bundle_export()
-
-
-def render_sidebar():
-    mode_def = current_mode()
-    report_cfg = current_report_config()
-
-    with st.sidebar:
-        st.markdown(
-            """
-            <div style="text-align:center;padding:1rem 0;border-bottom:1px solid #e5e7eb;margin-bottom:1rem;">
-                <div style="font-size:2.3rem;">📊</div>
-                <div style="font-size:1.1rem;font-weight:700;color:#12355b;">Reporteador Enterprise</div>
-                <div style="font-size:.75rem;color:#6b7280;">v1.1.0</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    if st.session_state.bundle_download:
+        st.download_button(
+            "Descargar conjunto",
+            data=st.session_state.bundle_download,
+            file_name=st.session_state.bundle_download_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
 
-        user_col, logout_col = st.columns([3, 1])
-        with user_col:
-            st.markdown(f"**{st.session_state.username}**")
-        with logout_col:
-            if st.button("Salir", key="logout_btn"):
-                st.session_state.authenticated = False
-                st.session_state.username = ""
-                st.rerun()
+    if st.session_state.bundle_results:
+        summary = {
+            config.get_report_config(report_key)["name"]: len(df)
+            for report_key, df in st.session_state.bundle_results.items()
+        }
+        cols = st.columns(len(summary), gap="small")
+        for col, (label, value) in zip(cols, summary.items()):
+            col.metric(label, value)
 
-        st.markdown(
-            f"""
-            <div style="background:#e8f1fb;border-left:4px solid #12355b;padding:.8rem;border-radius:10px;margin:.75rem 0 1rem 0;">
-                <div style="font-size:.82rem;color:#12355b;font-weight:700;">Modo activo</div>
-                <div style="font-size:.95rem;color:#0f172a;">{mode_def['label']}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if mode_def["key"] == "conjunto":
-            for report_key in ["emision_mensual", "renovaciones", "vencimientos", "cotizaciones"]:
-                cfg = config.get_report_config(report_key)
-                with st.expander(cfg["name"]):
-                    for col_def in cfg.get("columns", []):
-                        req = "Req." if col_def.get("required") else "Opc."
-                        st.markdown(f"- `{col_def['name']}` · `{col_def['type']}` · {req}")
-        elif report_cfg:
-            with st.expander("Columnas esperadas", expanded=False):
-                for col_def in report_cfg.get("columns", []):
-                    req = "Req." if col_def.get("required") else "Opc."
-                    st.markdown(f"- `{col_def['name']}` · `{col_def['type']}` · {req}")
-
-        with st.expander("Diagnóstico"):
-            if os.path.exists("logs/app.log"):
-                try:
-                    with open("logs/app.log", "r", encoding="utf-8", errors="ignore") as file_obj:
-                        lines = file_obj.readlines()[-15:]
-                    st.code("".join(lines), language="text")
-                except Exception:
-                    st.info("Sin logs disponibles.")
-            else:
-                st.info("Sin logs aún.")
+        tabs = st.tabs(list(summary.keys()))
+        for tab, (report_key, df) in zip(tabs, st.session_state.bundle_results.items()):
+            with tab:
+                render_preview(df, f"bundle_{report_key}")
 
 
-st.set_page_config(
-    page_title="Reporteador Comercial Enterprise",
-    layout="wide",
-    page_icon="📊",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Montse Reportes", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    * { font-family: 'Inter', sans-serif; }
-    .stApp { background: linear-gradient(180deg, #f4f8fc 0%, #eef4f8 100%); }
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Manrope', sans-serif;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(255,255,255,0.96), rgba(255,255,255,0) 36%),
+            linear-gradient(180deg, #f4f7fa 0%, #ebf0f5 100%);
+        color: #152334;
+    }
+
+    .block-container {
+        max-width: 1240px;
+        padding-top: 2rem;
+        padding-bottom: 2.4rem;
+    }
+
+    .hero,
+    .login-brand {
+        margin-bottom: 1rem;
+    }
+
+    .hero-kicker,
+    .login-kicker {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #637487;
+    }
+
+    .hero h1,
+    .login-brand h1 {
+        margin: 0.15rem 0 0 0;
+        font-size: 2.45rem;
+        line-height: 1;
+        letter-spacing: -0.05em;
+        color: #17324d;
+    }
+
+    .login-brand {
+        text-align: center;
+        margin-top: 5rem;
+    }
+
+    .account-chip {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.8rem;
+        margin-top: 0.55rem;
+        margin-bottom: 0.5rem;
+        border: 1px solid rgba(23, 50, 77, 0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.74);
+        color: #17324d;
+        font-size: 0.92rem;
+        font-weight: 600;
+    }
+
+    .section-title {
+        margin: 1.5rem 0 0.85rem 0;
+        font-size: 1.4rem;
+        letter-spacing: -0.04em;
+        color: #17324d;
+    }
+
+    .bucket-title,
+    .field-label {
+        margin-bottom: 0.4rem;
+        font-size: 0.84rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #6a7b8d;
+    }
+
+    .file-list {
+        display: grid;
+        gap: 0.5rem;
+        margin: 0.9rem 0 1rem 0;
+    }
+
+    .file-pill {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.78rem 0.95rem;
+        border: 1px solid rgba(23, 50, 77, 0.1);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 0.9rem;
+        color: #17324d;
+    }
+
+    div[data-testid="stFileUploaderDropzone"] {
+        border: 1px dashed rgba(23, 50, 77, 0.22);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.72);
+        padding: 0.9rem;
+    }
+
+    div[data-testid="stFileUploaderDropzone"] button,
+    div[data-testid="stDownloadButton"] button,
+    div[data-testid="stButton"] button {
+        border-radius: 999px;
+        min-height: 2.8rem;
+        font-weight: 700;
+        border: 1px solid rgba(23, 50, 77, 0.12);
+    }
+
+    div[data-testid="stButton"] button[kind="secondary"],
+    div[data-testid="stDownloadButton"] button,
+    div[data-testid="stFileUploaderDropzone"] button {
+        background: rgba(255, 255, 255, 0.78);
+        color: #17324d;
+    }
+
+    div[data-testid="stButton"] button[kind="primary"] {
+        background: #17324d;
+        color: #ffffff;
+        border-color: #17324d;
+        box-shadow: 0 14px 32px rgba(23, 50, 77, 0.16);
+    }
+
+    div[data-testid="stMetric"] {
+        border: 1px solid rgba(23, 50, 77, 0.1);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.78);
+        padding: 0.35rem 0.55rem;
+    }
+
+    div[data-testid="stTabs"] button {
+        border-radius: 999px;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 18px;
+        overflow: hidden;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -665,36 +604,10 @@ if not st.session_state.authenticated:
     render_login()
     st.stop()
 
-render_sidebar()
+render_header()
+render_mode_selector()
 
-st.markdown(
-    '<div style="text-align:center;font-size:2.4rem;font-weight:800;color:#12355b;">Reporteador Comercial Enterprise</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div style="text-align:center;color:#5b6470;font-size:1rem;margin-bottom:1rem;">Botones directos en home para emisiones, renovaciones, vencimientos, cotizaciones y flujo conjunto.</div>',
-    unsafe_allow_html=True,
-)
-
-render_mode_buttons()
-render_step_indicator(st.session_state.step)
-
-if current_mode()["key"] == "conjunto":
-    render_combined_flow()
+if get_mode()["key"] == "conjunto":
+    render_bundle()
 else:
     render_single_flow()
-
-if current_mode()["key"] != "conjunto" and st.session_state.processed_df is None:
-    st.markdown(
-        """
-        <div style="text-align:center;background:white;border-radius:18px;padding:2.5rem;margin-top:1.5rem;
-                    box-shadow:0 10px 30px rgba(18,53,91,.08);">
-            <div style="font-size:3rem;">📂</div>
-            <div style="font-size:1.2rem;font-weight:700;color:#12355b;margin:.5rem 0;">Seleccione un flujo y cargue sus archivos</div>
-            <div style="max-width:520px;margin:0 auto;color:#6b7280;">
-                Cada botón de la home prepara un reporte distinto. El modo conjunto permite procesar varias fuentes en la misma corrida.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )

@@ -1,10 +1,11 @@
+import os
 from typing import Any, List, Tuple
 
 import pandas as pd
 import pandera.pandas as pa
 from loguru import logger
 
-from .agent_catalog import AgentCatalog
+from .agent_catalog import AgentCatalog, normalize_text
 from .config import ConfigLoader
 from .schemas import SchemaBuilder
 from .source_converters import (
@@ -70,13 +71,18 @@ class ExcelLoader:
         collected = []
 
         for file_obj in uploaded_files:
-            file_name = getattr(file_obj, "name", "archivo")
+            file_name = os.path.basename(str(getattr(file_obj, "name", "archivo")))
             try:
                 raw_df = read_tabular_excel(file_obj, expected_headers)
                 transformed = self._transform_dataframe(raw_df, source_type)
+
                 if transformed.empty:
-                    errors.append(f"{file_name}: no se encontraron registros útiles después de transformar el archivo.")
+                    if self._looks_like_output_template(file_name, raw_df, report_config):
+                        errors.append(f"{file_name}: es una plantilla de salida; no hace falta cargarla.")
+                    else:
+                        errors.append(f"{file_name}: no se encontraron registros utiles despues de transformar el archivo.")
                     continue
+
                 collected.append(transformed)
                 logger.info("Successfully loaded {}", file_name)
             except Exception as exc:
@@ -94,3 +100,20 @@ class ExcelLoader:
         if source_type == "renovaciones":
             return build_renovaciones_dataframe(df, self.agent_catalog)
         return df.copy()
+
+    def _looks_like_output_template(self, file_name: str, raw_df: pd.DataFrame, report_config: dict) -> bool:
+        if raw_df.empty:
+            return "PLANTILLA" in normalize_text(file_name) or "TEMPLATE" in normalize_text(file_name)
+
+        source_headers = {normalize_text(header) for header in report_config.get("source_headers", []) if header}
+        report_columns = {normalize_text(col["name"]) for col in report_config.get("columns", []) if col.get("name")}
+        raw_columns = {normalize_text(column) for column in raw_df.columns if normalize_text(column)}
+
+        source_score = len(raw_columns & source_headers)
+        report_score = len(raw_columns & report_columns)
+        template_name = "PLANTILLA" in normalize_text(file_name) or "TEMPLATE" in normalize_text(file_name)
+
+        if template_name and report_score >= source_score:
+            return True
+
+        return source_score <= 1 and report_score >= 3
