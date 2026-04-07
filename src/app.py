@@ -813,6 +813,57 @@ st.markdown(
 initialize_state()
 
 if not st.session_state.authenticated:
+    st.markdown(
+        """
+        <style>
+        .login-shell {
+            margin-bottom: 1.2rem;
+        }
+
+        div[data-testid="stForm"] {
+            padding: 1.35rem 1.25rem 1.1rem 1.25rem;
+            border-radius: 26px;
+            border: 1px solid rgba(193, 18, 31, 0.18);
+            background: linear-gradient(180deg, #c1121f 0%, #a50f1a 100%);
+            box-shadow: 0 28px 60px rgba(193, 18, 31, 0.22);
+        }
+
+        div[data-testid="stForm"] label p,
+        div[data-testid="stForm"] label span {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+
+        div[data-testid="stForm"] div[data-baseweb="input"] > div,
+        div[data-testid="stForm"] div[data-baseweb="base-input"] {
+            border-radius: 16px !important;
+            border: 1px solid rgba(255, 255, 255, 0.55) !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+        }
+
+        div[data-testid="stForm"] div[data-baseweb="input"] input,
+        div[data-testid="stForm"] div[data-baseweb="base-input"] input {
+            color: #111827 !important;
+            font-weight: 600;
+        }
+
+        div[data-testid="stForm"] div[data-baseweb="input"]:focus-within > div,
+        div[data-testid="stForm"] div[data-baseweb="base-input"]:focus-within {
+            border-color: rgba(255, 255, 255, 0.95) !important;
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.16) !important;
+        }
+
+        div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+            background: #ffffff;
+            border-color: #ffffff;
+            color: #9f1239;
+            box-shadow: 0 16px 36px rgba(17, 24, 39, 0.14);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     render_login()
     st.stop()
 
