@@ -23,17 +23,30 @@ PDF_AGENT_PATTERNS = [
 
 SPANISH_MONTHS = {
     "ENERO": 1,
+    "ENE": 1,
     "FEBRERO": 2,
+    "FEB": 2,
     "MARZO": 3,
+    "MAR": 3,
     "ABRIL": 4,
+    "ABR": 4,
     "MAYO": 5,
+    "MAY": 5,
     "JUNIO": 6,
+    "JUN": 6,
     "JULIO": 7,
+    "JUL": 7,
     "AGOSTO": 8,
+    "AGO": 8,
     "SEPTIEMBRE": 9,
+    "SEP": 9,
+    "SEPT": 9,
     "OCTUBRE": 10,
+    "OCT": 10,
     "NOVIEMBRE": 11,
+    "NOV": 11,
     "DICIEMBRE": 12,
+    "DIC": 12,
 }
 
 
@@ -376,9 +389,9 @@ def _extract_agent(text: str) -> tuple[str, str]:
 
 
 def _extract_quote_date(text: str) -> pd.Timestamp:
-    header_match = re.search(r"(\d{2}/\d{2}/\d{4})\s+\d{1,2}:\d{2}", text)
-    if header_match:
-        return pd.to_datetime(header_match.group(1), dayfirst=True, errors="coerce")
+    numeric_dates = re.findall(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}", text)
+    if numeric_dates:
+        return _parse_date_token(numeric_dates[0])
 
     footer_match = re.search(r"DE FECHA\s+(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚ]+)\s+DE\s+(\d{4})", text, re.IGNORECASE)
     if footer_match:
@@ -388,11 +401,37 @@ def _extract_quote_date(text: str) -> pd.Timestamp:
         if month:
             return pd.Timestamp(datetime(year, month, day))
 
-    fallback = re.search(r"(\d{2}/\d{2}/\d{4})", text)
+    named_match = re.search(
+        r"(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚ]+)\s+(?:DE|DEL)\s+(\d{4})",
+        text,
+        re.IGNORECASE,
+    )
+    if named_match:
+        day = int(named_match.group(1))
+        month = SPANISH_MONTHS.get(normalize_text(named_match.group(2)))
+        year = int(named_match.group(3))
+        if month:
+            return pd.Timestamp(datetime(year, month, day))
+
+    compact_named_match = re.search(r"(\d{1,2})\s+([A-ZÁÉÍÓÚ]{3,10})\s+(\d{4})", text, re.IGNORECASE)
+    if compact_named_match:
+        day = int(compact_named_match.group(1))
+        month = SPANISH_MONTHS.get(normalize_text(compact_named_match.group(2)))
+        year = int(compact_named_match.group(3))
+        if month:
+            return pd.Timestamp(datetime(year, month, day))
+
+    fallback = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", text)
     if fallback:
-        return pd.to_datetime(fallback.group(1), dayfirst=True, errors="coerce")
+        return _parse_date_token(fallback.group(1))
 
     return pd.NaT
+
+
+def _parse_date_token(value: str) -> pd.Timestamp:
+    cleaned = value.replace(".", "/").replace("-", "/")
+    parsed = pd.to_datetime(cleaned, dayfirst=True, errors="coerce")
+    return parsed if pd.notna(parsed) else pd.NaT
 
 
 def _extract_vehicle(text: str, filename: str) -> str:

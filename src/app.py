@@ -13,7 +13,7 @@ from src.data_loader import ExcelLoader
 from src.logger import setup_logging
 from src.services import KPIEngine, ReportProcessor
 from src.template_engine import TemplateFiller
-from src.user_store import DEFAULT_ADMIN_USERNAME, UserStore
+from src.user_store import UserStore
 
 
 setup_logging()
@@ -99,9 +99,7 @@ def render_login():
     st.markdown(
         """
         <div class="login-shell">
-            <div class="login-kicker">Plataforma Interna</div>
-            <h1>Reportes Comerciales</h1>
-            <p>Acceso empresarial para operaciones, renovaciones y cotizaciones.</p>
+            <h1>Reportes</h1>
         </div>
         """,
         unsafe_allow_html=True,
@@ -123,16 +121,6 @@ def render_login():
                     st.rerun()
                 st.error("Credenciales invalidas.")
 
-    st.markdown(
-        f"""
-        <div class="login-footnote">
-            Administrador fijo: <strong>{DEFAULT_ADMIN_USERNAME}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_header():
     left, right = st.columns([6.3, 1.7], gap="medium")
 
@@ -142,8 +130,7 @@ def render_header():
             <div class="header-shell">
                 <div class="header-accent"></div>
                 <div class="header-copy">
-                    <div class="header-kicker">Plataforma Interna</div>
-                    <h1>Reportes Comerciales</h1>
+                    <h1>Reportes</h1>
                 </div>
             </div>
             """,
@@ -151,12 +138,10 @@ def render_header():
         )
 
     with right:
-        role_label = "Administrador" if st.session_state.is_admin else "Usuario"
         st.markdown(
             f"""
             <div class="account-shell">
                 <div class="account-name">{st.session_state.username}</div>
-                <div class="account-role">{role_label}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -414,10 +399,10 @@ def render_single_flow():
 
 def render_access_panel():
     if not st.session_state.is_admin:
-        st.warning("Solo el administrador puede gestionar cuentas.")
+        st.warning("No tienes permisos para gestionar cuentas.")
         return
 
-    render_section_heading("Accesos", "Montse administra el alta de usuarios desde esta pestaña.")
+    render_section_heading("Accesos", "Crea cuentas y consulta los accesos disponibles.")
 
     feedback = st.session_state.get("access_feedback")
     if feedback:
@@ -430,7 +415,7 @@ def render_access_panel():
     users = user_store.list_users()
     summary_col1.metric("Usuarios", len(users))
     summary_col2.metric("Activos", sum(1 for user in users if user["active"]))
-    summary_col3.metric("Admins", sum(1 for user in users if user["is_admin"]))
+    summary_col3.metric("Control total", sum(1 for user in users if user["is_admin"]))
 
     create_col, list_col = st.columns([1, 1.25], gap="large")
 
@@ -439,7 +424,7 @@ def render_access_panel():
             """
             <div class="admin-note">
                 <div class="admin-note-title">Alta de cuenta</div>
-                <div class="admin-note-copy">El usuario administrador fijo es montse. Las cuentas nuevas se crean como usuarios normales.</div>
+                <div class="admin-note-copy">Define el usuario y una contrasena temporal para habilitar un nuevo acceso.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -463,7 +448,7 @@ def render_access_panel():
     with list_col:
         table = pd.DataFrame(users)
         if not table.empty:
-            table["rol"] = table["is_admin"].map(lambda value: "Administrador" if value else "Usuario")
+            table["rol"] = table["is_admin"].map(lambda value: "Control total" if value else "Operativo")
             table["estado"] = table["active"].map(lambda value: "Activo" if value else "Inactivo")
             table["creado"] = (
                 pd.to_datetime(table["created_at"], errors="coerce")
@@ -562,37 +547,14 @@ st.markdown(
         animation: revealUp 520ms ease both;
     }
 
-    .login-kicker,
-    .header-kicker {
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--accent);
-    }
-
     .login-shell h1,
     .header-copy h1 {
-        margin: 0.35rem 0 0 0;
+        margin: 0.15rem 0 0 0;
         font-family: 'Space Grotesk', sans-serif;
         font-size: 2.45rem;
         line-height: 1.02;
         letter-spacing: -0.05em;
         color: var(--ink);
-    }
-
-    .login-shell p {
-        max-width: 520px;
-        margin: 0.8rem auto 0 auto;
-        color: var(--muted);
-        font-size: 0.97rem;
-    }
-
-    .login-footnote {
-        margin-top: 1rem;
-        text-align: center;
-        color: var(--muted);
-        font-size: 0.9rem;
     }
 
     .header-shell {
@@ -624,8 +586,9 @@ st.markdown(
     }
 
     .account-shell {
-        display: grid;
-        gap: 0.2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         padding: 0.95rem 1rem;
         margin-top: 0.15rem;
         margin-bottom: 0.55rem;
@@ -642,14 +605,6 @@ st.markdown(
         font-size: 0.96rem;
         font-weight: 700;
         color: var(--ink);
-    }
-
-    .account-role {
-        font-size: 0.82rem;
-        font-weight: 600;
-        color: var(--accent);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
     }
 
     .section-shell {
@@ -748,11 +703,28 @@ st.markdown(
     div[data-baseweb="input"] > div,
     div[data-baseweb="base-input"] {
         border-radius: 18px !important;
-        border-color: var(--line) !important;
-        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.72) 100%) !important;
+        border: 1px solid rgba(193, 18, 31, 0.26) !important;
+        background: linear-gradient(180deg, rgba(255,244,245,0.95) 0%, rgba(255,236,239,0.86) 100%) !important;
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
         box-shadow: var(--shadow);
+    }
+
+    div[data-baseweb="input"] input,
+    div[data-baseweb="base-input"] input {
+        color: var(--ink) !important;
+        font-weight: 600;
+    }
+
+    div[data-baseweb="input"] input::placeholder,
+    div[data-baseweb="base-input"] input::placeholder {
+        color: rgba(159, 18, 57, 0.55) !important;
+    }
+
+    div[data-baseweb="input"]:focus-within > div,
+    div[data-baseweb="base-input"]:focus-within {
+        border-color: rgba(193, 18, 31, 0.65) !important;
+        box-shadow: 0 0 0 4px rgba(193, 18, 31, 0.10), 0 18px 38px rgba(15, 23, 42, 0.1) !important;
     }
 
     div[data-testid="stButton"] button,

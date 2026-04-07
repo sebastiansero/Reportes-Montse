@@ -120,3 +120,28 @@ def test_parse_quote_text_extracts_core_fields():
     assert record["NOMBRE DE AGENTE QUE SOLICITA"] == "ERNESTO VALDIVIA LOYOLA"
     assert record["UNIDAD"] == "MOTO URBANA 300 NK 300 CC 2026"
     assert record["PRIMA TOTAL"] == 8410.66
+
+
+def test_parse_quote_text_accepts_hyphenated_dates():
+    catalog = AgentCatalog.from_dataframe(
+        pd.DataFrame(
+            [
+                {"EJECUTIVO": "Hazel Castro", "NOMBRE AGENTE": "ERNESTO VALDIVIA LOYOLA"},
+            ]
+        )
+    )
+    text = """
+    COTIZACION DE SEGUROS AUTOMOVILES.
+    Vigencia: 25-03-2026 AL 25-03-2027 08:30:00 a. m.
+    21814
+    ERNESTO VALDIVIA LOYOLA____________________________________
+    MONEDA : NACIONAL MP CF MOTO URBANA 300 NK 300 CC
+    2026 PARTICULAR
+    FORMA DE PAGO: CONTADO
+    PRIMA TOTAL: 8,410.66
+    """
+
+    record = parse_quote_text(text, "A1 300 NK 2026.pdf", catalog)
+
+    assert str(record["FECHA SOLICITUD DE COTIZACION"].date()) == "2026-03-25"
+    assert str(record["FECHA ENVIO DE COTIZACION"].date()) == "2026-03-25"
