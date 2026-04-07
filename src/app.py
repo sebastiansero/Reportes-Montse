@@ -1,23 +1,20 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import sys
 import os
-import io
+import sys
 from datetime import datetime
 
-# Add project root to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.config import ConfigLoader
 from src.data_loader import ExcelLoader
-from src.services import ReportProcessor, KPIEngine
-from src.template_engine import TemplateFiller
 from src.logger import setup_logging
-from loguru import logger
+from src.services import KPIEngine, ReportProcessor
+from src.template_engine import TemplateFiller
 
-# ── Initialize Services ──────────────────────────────────────────────
+
 setup_logging()
 config = ConfigLoader()
 loader = ExcelLoader(config)
@@ -25,287 +22,189 @@ processor = ReportProcessor(config)
 filler = TemplateFiller()
 
 
-# ── Authentication ────────────────────────────────────────────────────
+HOME_MODES = [
+    {
+        "key": "emisiones",
+        "label": "Emisiones",
+        "report_key": "emision_mensual",
+        "icon": "📤",
+        "description": "Convierte el archivo masivo de emisiones y cancelaciones al formato operativo.",
+    },
+    {
+        "key": "renovaciones",
+        "label": "Renovaciones",
+        "report_key": "renovaciones",
+        "icon": "🔁",
+        "description": "Genera el control de renovaciones listo para seguimiento y actualización.",
+    },
+    {
+        "key": "vencimientos",
+        "label": "Vencimientos",
+        "report_key": "vencimientos",
+        "icon": "📅",
+        "description": "Estandariza el listado de pólizas por vencer para revisión comercial.",
+    },
+    {
+        "key": "cotizaciones",
+        "label": "Cotizaciones",
+        "report_key": "cotizaciones",
+        "icon": "📄",
+        "description": "Agrupa los PDF de cotización y extrae agente, unidad, vigencia y prima.",
+    },
+    {
+        "key": "conjunto",
+        "label": "Conjunto",
+        "report_key": None,
+        "icon": "🧩",
+        "description": "Procesa emisiones, vencimientos y cotizaciones en una sola corrida.",
+    },
+]
+
+MODE_MAP = {mode["key"]: mode for mode in HOME_MODES}
+
+
+def current_mode():
+    return MODE_MAP[st.session_state.active_mode]
+
+
+def current_report_key():
+    return current_mode()["report_key"]
+
+
+def current_report_config():
+    report_key = current_report_key()
+    return config.get_report_config(report_key) if report_key else None
+
+
+def reset_single_results():
+    st.session_state.processed_df = None
+    st.session_state.raw_df = None
+    st.session_state.errors = []
+    st.session_state.kpis = {}
+    st.session_state.file_details = []
+    st.session_state.generated_excel = None
+    st.session_state.generated_excel_name = ""
+    st.session_state.generated_csv = None
+    st.session_state.generated_csv_name = ""
+    st.session_state.step = 1
+
+
+def reset_bundle_results():
+    st.session_state.bundle_results = {}
+    st.session_state.bundle_errors = []
+    st.session_state.bundle_excel = None
+    st.session_state.bundle_excel_name = ""
+
+
+def reset_all_results():
+    reset_single_results()
+    reset_bundle_results()
+
+
+def activate_mode(mode_key: str):
+    if st.session_state.active_mode != mode_key:
+        st.session_state.active_mode = mode_key
+        reset_all_results()
+
+
+def initialize_state():
+    defaults = {
+        "authenticated": False,
+        "username": "",
+        "active_mode": "emisiones",
+        "processed_df": None,
+        "raw_df": None,
+        "errors": [],
+        "step": 1,
+        "kpis": {},
+        "file_details": [],
+        "generated_excel": None,
+        "generated_excel_name": "",
+        "generated_csv": None,
+        "generated_csv_name": "",
+        "bundle_results": {},
+        "bundle_errors": [],
+        "bundle_excel": None,
+        "bundle_excel_name": "",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
 def check_credentials(username: str, password: str) -> bool:
-    """Verify credentials against st.secrets or fallback."""
     try:
         passwords = st.secrets.get("passwords", {})
         if username in passwords and passwords[username] == password:
             return True
     except Exception:
         pass
-    # Fallback hardcoded (remove in production)
     fallback = {"montse": "montse2026", "admin": "admin2026"}
     return fallback.get(username) == password
 
+
 def render_login():
-    """Render the login page."""
-    st.markdown("""
-    <style>
-    .login-container {
-        max-width: 400px;
-        margin: 5rem auto;
-        padding: 2.5rem;
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-    }
-    .login-title {
-        text-align: center;
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #003366;
-        margin-bottom: 0.3rem;
-    }
-    .login-subtitle {
-        text-align: center;
-        color: #888;
-        font-size: 0.9rem;
-        margin-bottom: 1.5rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
+    st.markdown(
+        """
+        <style>
+        .login-title {
+            text-align:center;
+            font-size:2rem;
+            font-weight:700;
+            color:#12355b;
+            margin-top:4rem;
+        }
+        .login-subtitle {
+            text-align:center;
+            color:#6b7280;
+            margin-bottom:1.5rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="login-title">Reporteador Enterprise</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-subtitle">Ingrese sus credenciales para continuar</div>', unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
-        st.markdown("")
-        st.markdown("")
-        st.markdown('<div class="login-title">📊 Reporteador Enterprise</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Ingrese sus credenciales para continuar</div>', unsafe_allow_html=True)
-        
         with st.form("login_form"):
-            username = st.text_input("👤 Usuario", placeholder="Ingrese su usuario")
-            password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingrese su contraseña")
+            username = st.text_input("Usuario")
+            password = st.text_input("Contraseña", type="password")
             submitted = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
-            
             if submitted:
                 if check_credentials(username, password):
                     st.session_state.authenticated = True
                     st.session_state.username = username
                     st.rerun()
-                else:
-                    st.error("❌ Usuario o contraseña incorrectos.")
-        
-        st.markdown("")
-        st.caption("© 2026 Reporteador Enterprise · Acceso restringido")
-
-# ── Page Config ───────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Reporteador Comercial Enterprise",
-    layout="wide",
-    page_icon="📊",
-    initial_sidebar_state="expanded"
-)
-
-# ── Custom CSS ────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-* { font-family: 'Inter', sans-serif; }
-
-.main-title {
-    font-size: 2.2rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #003366, #0066CC);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    text-align: center;
-    margin-bottom: 0.2rem;
-}
-.main-subtitle {
-    text-align: center;
-    color: #666;
-    font-size: 1rem;
-    margin-bottom: 2rem;
-}
-
-/* Step indicator */
-.step-container {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    margin-bottom: 2rem;
-}
-.step {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1.2rem;
-    border-radius: 25px;
-    font-size: 0.85rem;
-    font-weight: 500;
-}
-.step-active {
-    background: linear-gradient(135deg, #003366, #0066CC);
-    color: white;
-}
-.step-done {
-    background: #d4edda;
-    color: #155724;
-}
-.step-pending {
-    background: #e9ecef;
-    color: #999;
-}
-
-/* File cards */
-.file-card {
-    background: white;
-    border: 1px solid #e0e0e0;
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: all 0.2s;
-}
-.file-card:hover {
-    border-color: #0066CC;
-    box-shadow: 0 2px 8px rgba(0,102,204,0.15);
-}
-.file-info {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-}
-.file-icon { font-size: 1.5rem; }
-.file-name { font-weight: 600; color: #333; }
-.file-size { font-size: 0.8rem; color: #999; }
-.file-status-ok { color: #28a745; font-weight: 600; font-size: 0.85rem; }
-.file-status-err { color: #dc3545; font-weight: 600; font-size: 0.85rem; }
-
-/* Metric cards */
-.kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    margin: 1.5rem 0;
-}
-.kpi-card {
-    background: white;
-    border-radius: 12px;
-    padding: 1.5rem;
-    text-align: center;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    border-top: 4px solid #0066CC;
-    transition: transform 0.2s;
-}
-.kpi-card:hover { transform: translateY(-4px); }
-.kpi-value {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #003366;
-    margin: 0.5rem 0;
-}
-.kpi-label {
-    font-size: 0.85rem;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
-
-/* Quality score */
-.quality-bar {
-    background: #e9ecef;
-    border-radius: 10px;
-    height: 12px;
-    overflow: hidden;
-    margin: 0.5rem 0;
-}
-.quality-fill {
-    height: 100%;
-    border-radius: 10px;
-    transition: width 0.8s ease;
-}
-.quality-high { background: linear-gradient(90deg, #28a745, #20c997); }
-.quality-mid { background: linear-gradient(90deg, #ffc107, #fd7e14); }
-.quality-low { background: linear-gradient(90deg, #dc3545, #e83e8c); }
-
-/* Sidebar */
-.sidebar-brand {
-    text-align: center;
-    padding: 1rem 0;
-    border-bottom: 1px solid #eee;
-    margin-bottom: 1rem;
-}
-.sidebar-brand-name {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: #003366;
-}
-.sidebar-version {
-    font-size: 0.75rem;
-    color: #999;
-}
-
-/* Toast */
-.toast-success {
-    background: #d4edda;
-    border: 1px solid #c3e6cb;
-    color: #155724;
-    padding: 1rem;
-    border-radius: 8px;
-    margin: 1rem 0;
-}
-</style>
-""", unsafe_allow_html=True)
+                st.error("Usuario o contraseña incorrectos.")
 
 
-# ── Session State Init ────────────────────────────────────────────────
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'username' not in st.session_state:
-    st.session_state.username = ""
-if 'processed_df' not in st.session_state:
-    st.session_state.processed_df = None
-if 'raw_df' not in st.session_state:
-    st.session_state.raw_df = None
-if 'errors' not in st.session_state:
-    st.session_state.errors = []
-if 'step' not in st.session_state:
-    st.session_state.step = 1
-if 'kpis' not in st.session_state:
-    st.session_state.kpis = {}
-if 'file_details' not in st.session_state:
-    st.session_state.file_details = []
-
-# ── Auth Gate ─────────────────────────────────────────────────────────
-if not st.session_state.authenticated:
-    render_login()
-    st.stop()
-
-
-# ── Helper Functions ──────────────────────────────────────────────────
 def format_bytes(size):
-    """Convert bytes to human readable string."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if size < 1024:
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
 
+
 def calculate_quality_score(df, report_type):
-    """Calculate a data quality score (0-100)."""
     if df.empty:
         return 0
-    
+
     report_config = config.get_report_config(report_type)
     if not report_config:
         return 0
-    
-    required_cols = [c['name'] for c in report_config.get('columns', []) if c.get('required')]
+
+    required_cols = [c["name"] for c in report_config.get("columns", []) if c.get("required")]
     total_checks = 0
     passed_checks = 0
-    
-    # Check 1: All required columns present
+
     for col in required_cols:
         total_checks += 1
         if col in df.columns:
             passed_checks += 1
-    
-    # Check 2: Null percentage per required column
+
     for col in required_cols:
         if col in df.columns:
             total_checks += 1
@@ -314,401 +213,488 @@ def calculate_quality_score(df, report_type):
                 passed_checks += 1
             elif null_pct < 0.2:
                 passed_checks += 0.5
-    
-    # Check 3: Duplicate rows
+
     total_checks += 1
     dup_pct = df.duplicated().mean()
     if dup_pct < 0.01:
         passed_checks += 1
     elif dup_pct < 0.1:
         passed_checks += 0.5
-    
+
     return round((passed_checks / total_checks) * 100) if total_checks > 0 else 0
 
+
 def render_step_indicator(current):
-    """Render the step progress indicator."""
-    steps = [
-        ("1", "Cargar Datos"),
-        ("2", "Análisis"),
-        ("3", "Exportar")
-    ]
-    html = '<div class="step-container">'
-    for num, label in steps:
+    labels = [("1", "Cargar"), ("2", "Analizar"), ("3", "Exportar")]
+    html = ['<div style="display:flex;gap:.6rem;justify-content:center;margin:1rem 0 2rem 0;">']
+    for num, label in labels:
         step_num = int(num)
         if step_num < current:
-            cls = "step step-done"
-            icon = "✅"
+            bg, fg, icon = "#d1fae5", "#065f46", "OK"
         elif step_num == current:
-            cls = "step step-active"
-            icon = "▶"
+            bg, fg, icon = "#12355b", "#ffffff", "ACT"
         else:
-            cls = "step step-pending"
-            icon = "○"
-        html += f'<div class="{cls}">{icon} {label}</div>'
-    html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+            bg, fg, icon = "#e5e7eb", "#6b7280", "..."
+        html.append(
+            f'<div style="padding:.55rem 1rem;border-radius:999px;background:{bg};color:{fg};font-size:.85rem;font-weight:600;">'
+            f"{icon} {label}</div>"
+        )
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+
 
 def render_kpi_cards(kpis):
-    """Render KPI cards with HTML."""
-    html = '<div class="kpi-grid">'
-    for label, value in kpis.items():
+    cols = st.columns(len(kpis))
+    for col, (label, value) in zip(cols, kpis.items()):
         if isinstance(value, float):
-            display_val = f"{value:,.2f}"
+            display = f"{value:,.2f}"
         elif isinstance(value, int):
-            display_val = f"{value:,}"
+            display = f"{value:,}"
         else:
-            display_val = str(value)
-        html += f'''
-        <div class="kpi-card">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{display_val}</div>
-        </div>'''
-    html += '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+            display = str(value)
+        col.metric(label, display)
+
 
 def render_quality_score(score):
-    """Render data quality gauge."""
     if score >= 80:
-        cls = "quality-high"
-        emoji = "🟢"
-        text = "Excelente"
+        color, label = "#16a34a", "Excelente"
     elif score >= 50:
-        cls = "quality-mid"
-        emoji = "🟡"
-        text = "Aceptable"
+        color, label = "#d97706", "Aceptable"
     else:
-        cls = "quality-low"
-        emoji = "🔴"
-        text = "Necesita revisión"
-    
-    st.markdown(f"""
-    <div style="background:white; padding:1.2rem; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin:1rem 0;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-            <span style="font-weight:600; color:#333;">Calidad de Datos</span>
-            <span style="font-weight:700; color:#003366;">{emoji} {score}% — {text}</span>
-        </div>
-        <div class="quality-bar">
-            <div class="quality-fill {cls}" style="width:{score}%;"></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        color, label = "#dc2626", "Revisar"
 
-
-# ── Sidebar ───────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div class="sidebar-brand">
-        <div style="font-size:2.5rem;">📊</div>
-        <div class="sidebar-brand-name">Reporteador Enterprise</div>
-        <div class="sidebar-version">v1.0.0</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # User info & logout
-    user_col, logout_col = st.columns([3, 1])
-    with user_col:
-        st.markdown(f"👤 **{st.session_state.username}**")
-    with logout_col:
-        if st.button("🚪", help="Cerrar sesión"):
-            st.session_state.authenticated = False
-            st.session_state.username = ""
-            st.rerun()
-    
-    st.markdown("##### Tipo de Reporte")
-    report_keys = list(config.reports.keys())
-    report_labels = [config.reports[k]['name'] for k in report_keys]
-    selected_idx = st.selectbox("Seleccione", range(len(report_keys)), format_func=lambda i: report_labels[i], label_visibility="collapsed")
-    selected_report = report_keys[selected_idx]
-    selected_name = report_labels[selected_idx]
-    
-    st.markdown(f"""
-    <div style="background:#e8f4fd; padding:0.8rem; border-radius:8px; margin:0.5rem 0; border-left:4px solid #0066CC;">
-        <span style="font-size:0.85rem; color:#003366; font-weight:500;">Modo: {selected_name}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Show expected columns
-    report_cfg = config.get_report_config(selected_report)
-    if report_cfg:
-        with st.expander("📋 Columnas Esperadas"):
-            for col_def in report_cfg.get("columns", []):
-                req = "🔴" if col_def.get("required") else "⚪"
-                aliases = col_def.get("aliases", [])
-                alias_text = f" *(también: {', '.join(aliases)})*" if aliases else ""
-                st.markdown(f"{req} **{col_def['name']}** `{col_def['type']}`{alias_text}")
-    
-    st.divider()
-    
-    with st.expander("🛠️ Diagnóstico"):
-        if os.path.exists("logs/app.log"):
-            try:
-                with open("logs/app.log", "r", encoding="utf-8") as f:
-                    lines = f.readlines()[-15:]
-                st.code("".join(lines), language="text")
-            except Exception:
-                st.info("Sin logs disponibles.")
-        else:
-            st.info("Sin logs aún.")
-    
-    st.divider()
-    st.caption("© 2026 Reporteador Enterprise")
-
-
-# ── Main Content ──────────────────────────────────────────────────────
-st.markdown('<div class="main-title">Reporteador Comercial Enterprise</div>', unsafe_allow_html=True)
-st.markdown('<div class="main-subtitle">Automatización inteligente de reportes comerciales</div>', unsafe_allow_html=True)
-
-render_step_indicator(st.session_state.step)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 1: FILE UPLOAD
-# ═══════════════════════════════════════════════════════════════════════
-st.markdown("### 📂 Paso 1 — Carga de Archivos")
-
-uploaded_files = st.file_uploader(
-    "Arrastre o seleccione archivos Excel",
-    type=["xlsx", "xls"],
-    accept_multiple_files=True,
-    key="file_uploader",
-    help="Puede subir múltiples archivos. El sistema los consolidará automáticamente."
-)
-
-if uploaded_files:
-    # Show file cards
-    st.markdown(f"**{len(uploaded_files)} archivo(s) cargado(s):**")
-    for f in uploaded_files:
-        size_str = format_bytes(f.size)
-        st.markdown(f"""
-        <div class="file-card">
-            <div class="file-info">
-                <span class="file-icon">📄</span>
-                <div>
-                    <div class="file-name">{f.name}</div>
-                    <div class="file-size">{size_str}</div>
-                </div>
+    st.markdown(
+        f"""
+        <div style="background:white;padding:1rem 1.2rem;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin:1rem 0;">
+            <div style="display:flex;justify-content:space-between;font-weight:600;margin-bottom:.5rem;">
+                <span>Calidad de Datos</span>
+                <span style="color:{color};">{score}% · {label}</span>
             </div>
-            <span class="file-status-ok">✓ Listo</span>
+            <div style="height:12px;background:#e5e7eb;border-radius:999px;overflow:hidden;">
+                <div style="width:{score}%;height:100%;background:{color};"></div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("")  # spacing
-    
-    # Process button
-    if st.button("🚀 Procesar Datos", type="primary", use_container_width=True):
-        with st.spinner("🧠 Analizando estructura, validando reglas y procesando datos..."):
-            df, errors = loader.load_and_validate(uploaded_files, selected_report)
-            
-            if errors:
-                st.session_state.errors = errors
-                st.session_state.raw_df = None
-                st.session_state.processed_df = None
-                st.session_state.step = 1
-            else:
-                processed_df = processor.process_data(df, selected_report)
-                kpis = KPIEngine.calculate(processed_df, selected_report)
-                
-                st.session_state.raw_df = df
-                st.session_state.processed_df = processed_df
-                st.session_state.kpis = kpis
-                st.session_state.errors = []
-                st.session_state.step = 2
-                
-                # Store file details
-                st.session_state.file_details = [
-                    {"name": f.name, "size": f.size, "rows": "—"} for f in uploaded_files
-                ]
-        
-        st.rerun()
-
-    # Show errors if any
-    if st.session_state.errors:
-        st.error("⚠️ Se encontraron errores de validación:")
-        for err in st.session_state.errors:
-            st.warning(err)
-        st.info("💡 **Sugerencia:** Revise que su archivo tenga las columnas esperadas (ver panel lateral).")
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 2: ANALYSIS DASHBOARD
-# ═══════════════════════════════════════════════════════════════════════
-if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
-    processed_df = st.session_state.processed_df
-    kpis = st.session_state.kpis
-    
-    st.divider()
-    st.markdown("### 📈 Paso 2 — Análisis y Dashboard")
-    
-    # Quality Score
-    quality = calculate_quality_score(processed_df, selected_report)
-    render_quality_score(quality)
-    
-    # KPIs
-    if kpis:
-        render_kpi_cards(kpis)
-    
-    # Summary stats
-    col_stats1, col_stats2, col_stats3 = st.columns(3)
-    with col_stats1:
-        st.metric("Total Registros", f"{len(processed_df):,}")
-    with col_stats2:
-        st.metric("Columnas Procesadas", len(processed_df.columns))
-    with col_stats3:
-        null_pct = round(processed_df.isnull().mean().mean() * 100, 1)
-        st.metric("Datos Vacíos", f"{null_pct}%")
-    
-    # Charts
-    st.markdown("#### 📊 Visualizaciones")
-    tab1, tab2, tab3 = st.tabs(["📊 Distribución", "🥧 Composición", "📋 Datos"])
-    
-    with tab1:
-        # Find a good column to chart
-        text_cols = processed_df.select_dtypes(['object']).columns.tolist()
-        numeric_cols = processed_df.select_dtypes(['number']).columns.tolist()
-        
+def render_mode_buttons():
+    st.markdown("### Home")
+    cols = st.columns(len(HOME_MODES))
+    for col, mode in zip(cols, HOME_MODES):
+        with col:
+            st.markdown(
+                f"""
+                <div style="background:white;border:1px solid #dbe4ee;border-radius:16px;padding:1rem;min-height:148px;
+                            box-shadow:0 8px 24px rgba(18,53,91,.06);margin-bottom:.5rem;">
+                    <div style="font-size:1.8rem;">{mode['icon']}</div>
+                    <div style="font-weight:700;color:#12355b;margin:.4rem 0;">{mode['label']}</div>
+                    <div style="font-size:.84rem;color:#5b6470;">{mode['description']}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button(mode["label"], key=f"mode_{mode['key']}", use_container_width=True):
+                activate_mode(mode["key"])
+                st.rerun()
+
+
+def render_file_cards(files):
+    st.markdown(f"**{len(files)} archivo(s) cargado(s)**")
+    for file_obj in files:
+        st.markdown(
+            f"""
+            <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;padding:.9rem 1rem;margin-bottom:.5rem;
+                        display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div style="font-weight:600;">{file_obj.name}</div>
+                    <div style="font-size:.82rem;color:#6b7280;">{format_bytes(file_obj.size)}</div>
+                </div>
+                <div style="color:#16a34a;font-weight:700;">Listo</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_dataset_preview(df, key_prefix):
+    if df is None or df.empty:
+        return
+
+    tabs = st.tabs(["Distribución", "Composición", "Datos"])
+    text_cols = df.select_dtypes(include=["object"]).columns.tolist()
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+
+    with tabs[0]:
         if text_cols:
-            chart_col = st.selectbox("Agrupar por:", text_cols, key="bar_col")
-            counts = processed_df[chart_col].value_counts().reset_index()
-            counts.columns = [chart_col, 'Cantidad']
-            fig = px.bar(
-                counts.head(15), x=chart_col, y='Cantidad',
-                title=f"Distribución por {chart_col}",
-                color='Cantidad',
-                color_continuous_scale='Blues'
-            )
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(family="Inter"),
-                title_font_size=16
-            )
+            bar_col = st.selectbox("Agrupar por", text_cols, key=f"{key_prefix}_bar_col")
+            counts = df[bar_col].replace("", "Sin dato").value_counts().reset_index()
+            counts.columns = [bar_col, "Cantidad"]
+            fig = px.bar(counts.head(15), x=bar_col, y="Cantidad", color="Cantidad", color_continuous_scale="Blues")
+            fig.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No hay columnas de texto para graficar distribución.")
-    
-    with tab2:
-        if text_cols and numeric_cols:
-            pie_group = st.selectbox("Agrupar por:", text_cols, key="pie_col")
-            pie_value = st.selectbox("Valor:", numeric_cols, key="pie_val")
-            fig2 = px.pie(
-                processed_df, values=pie_value, names=pie_group,
-                title=f"{pie_value} por {pie_group}",
-                color_discrete_sequence=px.colors.sequential.Blues_r
-            )
-            fig2.update_layout(
-                font=dict(family="Inter"),
-                title_font_size=16
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-        elif text_cols:
-            pie_group = st.selectbox("Agrupar por:", text_cols, key="pie_col")
-            counts = processed_df[pie_group].value_counts().reset_index()
-            counts.columns = [pie_group, 'Cantidad']
-            fig2 = px.pie(
-                counts, values='Cantidad', names=pie_group,
-                title=f"Distribución por {pie_group}",
-                color_discrete_sequence=px.colors.sequential.Blues_r
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.info("No hay columnas de texto para esta visualización.")
+
+    with tabs[1]:
+        if text_cols:
+            pie_col = st.selectbox("Agrupar por", text_cols, key=f"{key_prefix}_pie_col")
+            if numeric_cols:
+                pie_value = st.selectbox("Valor", numeric_cols, key=f"{key_prefix}_pie_val")
+                fig = px.pie(df, names=pie_col, values=pie_value, color_discrete_sequence=px.colors.sequential.Blues_r)
+            else:
+                counts = df[pie_col].replace("", "Sin dato").value_counts().reset_index()
+                counts.columns = [pie_col, "Cantidad"]
+                fig = px.pie(counts, names=pie_col, values="Cantidad", color_discrete_sequence=px.colors.sequential.Blues_r)
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No hay datos para graficar composición.")
-    
-    with tab3:
-        # Search / Filter
-        search = st.text_input("🔍 Buscar en datos:", placeholder="Escriba para filtrar...")
+            st.info("No hay datos para la composición.")
+
+    with tabs[2]:
+        search = st.text_input("Buscar", key=f"{key_prefix}_search", placeholder="Filtrar registros...")
+        display_df = df
         if search:
-            mask = processed_df.apply(lambda row: row.astype(str).str.contains(search, case=False).any(), axis=1)
-            display_df = processed_df[mask]
-            st.caption(f"Mostrando {len(display_df)} de {len(processed_df)} registros")
-        else:
-            display_df = processed_df
-        
-        st.dataframe(display_df, use_container_width=True, height=400)
-        
-        # Column statistics
-        with st.expander("📊 Estadísticas por Columna"):
-            st.dataframe(processed_df.describe(include='all').T, use_container_width=True)
-    
-    # ═══════════════════════════════════════════════════════════════════
-    # STEP 3: EXPORT
-    # ═══════════════════════════════════════════════════════════════════
+            mask = df.apply(lambda row: row.astype(str).str.contains(search, case=False, na=False).any(), axis=1)
+            display_df = df[mask]
+            st.caption(f"Mostrando {len(display_df)} de {len(df)} registros")
+        st.dataframe(display_df, use_container_width=True, height=420)
+
+
+def render_single_export(report_key, label):
+    report_cfg = config.get_report_config(report_key)
+    processed_df = st.session_state.processed_df
+    if processed_df is None or processed_df.empty or not report_cfg:
+        return
+
     st.divider()
-    st.markdown("### 💾 Paso 3 — Exportar Reporte")
-    
-    exp_col1, exp_col2 = st.columns(2)
-    
-    with exp_col1:
-        st.markdown("""
-        <div style="background:white; padding:1.5rem; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:100%;">
-            <h4 style="margin:0 0 0.5rem 0;">📥 Excel Consolidado</h4>
-            <p style="color:#666; font-size:0.9rem;">Exporta todos los datos procesados en un archivo Excel profesional con formato.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Generar Excel", type="primary", use_container_width=True, key="gen_excel"):
-            try:
-                template_path = f"templates/template_{selected_report}.xlsx"
-                output = filler.fill_template(processed_df, template_path)
-                
-                st.download_button(
-                    label="📥 Descargar Excel",
-                    data=output,
-                    file_name=f"Reporte_{selected_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                st.session_state.step = 3
-                st.toast("¡Reporte generado!", icon="🎉")
-            except Exception as e:
-                st.error(f"Error: {e}")
-    
-    with exp_col2:
-        st.markdown("""
-        <div style="background:white; padding:1.5rem; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:100%;">
-            <h4 style="margin:0 0 0.5rem 0;">📄 CSV Rápido</h4>
-            <p style="color:#666; font-size:0.9rem;">Exporta los datos en formato CSV para uso en otras herramientas o sistemas.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        csv_data = processed_df.to_csv(index=False).encode('utf-8')
+    st.markdown("### Exportación")
+
+    if st.button("Preparar Excel", key=f"prepare_excel_{report_key}", type="primary", use_container_width=True):
+        output = filler.fill_template(processed_df, report_cfg)
+        st.session_state.generated_excel = output.getvalue()
+        st.session_state.generated_excel_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        st.session_state.generated_csv = processed_df.to_csv(index=False).encode("utf-8")
+        st.session_state.generated_csv_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        st.session_state.step = 3
+
+    if st.session_state.generated_excel:
         st.download_button(
-            label="📄 Descargar CSV",
-            data=csv_data,
-            file_name=f"Reporte_{selected_name}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-            use_container_width=True
+            "Descargar Excel",
+            data=st.session_state.generated_excel,
+            file_name=st.session_state.generated_excel_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
-    
-    # Reset button
-    st.markdown("")
-    if st.button("🔄 Nuevo Reporte", use_container_width=True):
-        st.session_state.processed_df = None
-        st.session_state.raw_df = None
-        st.session_state.kpis = {}
-        st.session_state.errors = []
-        st.session_state.step = 1
-        st.session_state.file_details = []
+
+    if st.session_state.generated_csv:
+        st.download_button(
+            "Descargar CSV",
+            data=st.session_state.generated_csv,
+            file_name=st.session_state.generated_csv_name,
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+
+def process_single_flow(files, mode_def):
+    report_key = mode_def["report_key"]
+    reset_single_results()
+    df, errors = loader.load_and_validate(files, report_key)
+    st.session_state.errors = errors
+
+    if df.empty:
+        return
+
+    processed_df = processor.process_data(df, report_key)
+    st.session_state.raw_df = df
+    st.session_state.processed_df = processed_df
+    st.session_state.kpis = KPIEngine.calculate(processed_df, report_key)
+    st.session_state.file_details = [{"name": f.name, "size": f.size, "rows": "—"} for f in files]
+    st.session_state.step = 2
+
+
+def render_single_flow():
+    mode_def = current_mode()
+    report_key = mode_def["report_key"]
+    report_cfg = current_report_config()
+    allowed_extensions = [ext.lstrip(".") for ext in report_cfg.get("input_extensions", [".xlsx", ".xls"])]
+    uploader_help = (
+        "Puede subir múltiples archivos PDF. El sistema agrupará las cotizaciones automáticamente."
+        if allowed_extensions == ["pdf"]
+        else "Puede subir múltiples archivos Excel del mismo tipo."
+    )
+
+    st.markdown(f"### {mode_def['icon']} {mode_def['label']}")
+    st.caption(mode_def["description"])
+
+    files = st.file_uploader(
+        f"Seleccione archivos para {mode_def['label']}",
+        type=allowed_extensions,
+        accept_multiple_files=True,
+        key=f"uploader_{mode_def['key']}",
+        help=uploader_help,
+    )
+
+    if files:
+        render_file_cards(files)
+        if st.button(f"Procesar {mode_def['label']}", key=f"process_{mode_def['key']}", type="primary", use_container_width=True):
+            with st.spinner("Procesando información..."):
+                process_single_flow(files, mode_def)
+            st.rerun()
+
+    if st.session_state.errors:
+        st.warning("Se detectaron observaciones durante el procesamiento.")
+        for error in st.session_state.errors:
+            st.warning(error)
+
+    if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
+        processed_df = st.session_state.processed_df
+        st.divider()
+        st.markdown("### Dashboard")
+        render_quality_score(calculate_quality_score(processed_df, report_key))
+        if st.session_state.kpis:
+            render_kpi_cards(st.session_state.kpis)
+        render_dataset_preview(processed_df, mode_def["key"])
+        render_single_export(report_key, mode_def["label"])
+
+
+def process_bundle(emision_files, vencimiento_files, cotizacion_files):
+    reset_bundle_results()
+
+    results = {}
+    errors = []
+
+    if emision_files:
+        df, issue_list = loader.load_and_validate(emision_files, "emision_mensual")
+        errors.extend([f"Emisiones: {item}" for item in issue_list])
+        if not df.empty:
+            results["emision_mensual"] = processor.process_data(df, "emision_mensual")
+
+    if vencimiento_files:
+        df, issue_list = loader.load_and_validate(vencimiento_files, "vencimientos")
+        errors.extend([f"Vencimientos: {item}" for item in issue_list])
+        if not df.empty:
+            results["vencimientos"] = processor.process_data(df, "vencimientos")
+            results["renovaciones"] = processor.process_data(df, "renovaciones")
+
+    if cotizacion_files:
+        df, issue_list = loader.load_and_validate(cotizacion_files, "cotizaciones")
+        errors.extend([f"Cotizaciones: {item}" for item in issue_list])
+        if not df.empty:
+            results["cotizaciones"] = processor.process_data(df, "cotizaciones")
+
+    st.session_state.bundle_results = results
+    st.session_state.bundle_errors = errors
+    st.session_state.step = 2 if results else 1
+
+
+def render_bundle_summary():
+    bundle = st.session_state.bundle_results
+    if not bundle:
+        return
+
+    st.divider()
+    st.markdown("### Resumen Conjunto")
+
+    cols = st.columns(len(bundle))
+    for col, (report_key, df) in zip(cols, bundle.items()):
+        label = config.get_report_config(report_key)["name"]
+        col.metric(label, f"{len(df):,}")
+
+    tabs = st.tabs([config.get_report_config(report_key)["name"] for report_key in bundle.keys()])
+    for tab, (report_key, df) in zip(tabs, bundle.items()):
+        with tab:
+            render_dataset_preview(df, f"bundle_{report_key}")
+
+
+def render_bundle_export():
+    bundle = st.session_state.bundle_results
+    if not bundle:
+        return
+
+    st.divider()
+    st.markdown("### Exportación Conjunta")
+
+    if st.button("Preparar Workbook Conjunto", key="prepare_bundle", type="primary", use_container_width=True):
+        output = filler.fill_combined_report(bundle, config)
+        st.session_state.bundle_excel = output.getvalue()
+        st.session_state.bundle_excel_name = f"Reporte_Conjunto_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        st.session_state.step = 3
+
+    if st.session_state.bundle_excel:
+        st.download_button(
+            "Descargar Workbook Conjunto",
+            data=st.session_state.bundle_excel,
+            file_name=st.session_state.bundle_excel_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+
+def render_combined_flow():
+    st.markdown("### 🧩 Flujo Conjunto")
+    st.caption("Cargue cada fuente una sola vez. El sistema generará vencimientos, renovaciones, emisiones y cotizaciones dentro del mismo workbook.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        emision_files = st.file_uploader(
+            "Emisiones",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            key="bundle_emisiones",
+        )
+        if emision_files:
+            render_file_cards(emision_files)
+
+    with col2:
+        vencimiento_files = st.file_uploader(
+            "Vencimientos / Renovaciones",
+            type=["xlsx", "xls"],
+            accept_multiple_files=True,
+            key="bundle_vencimientos",
+        )
+        if vencimiento_files:
+            render_file_cards(vencimiento_files)
+
+    with col3:
+        cotizacion_files = st.file_uploader(
+            "Cotizaciones PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="bundle_cotizaciones",
+        )
+        if cotizacion_files:
+            render_file_cards(cotizacion_files)
+
+    if st.button("Procesar Todo", key="process_bundle", type="primary", use_container_width=True):
+        with st.spinner("Procesando flujo conjunto..."):
+            process_bundle(emision_files or [], vencimiento_files or [], cotizacion_files or [])
         st.rerun()
 
-# ═══════════════════════════════════════════════════════════════════════
-# EMPTY STATE (no data loaded)
-# ═══════════════════════════════════════════════════════════════════════
-elif not uploaded_files and st.session_state.processed_df is None:
-    st.markdown("")
-    col_empty1, col_empty2, col_empty3 = st.columns([1, 2, 1])
-    with col_empty2:
-        st.markdown("""
-        <div style="text-align:center; padding:3rem; background:white; border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,0.06); margin-top:1rem;">
-            <div style="font-size:4rem; margin-bottom:1rem;">📂</div>
-            <h3 style="color:#333; margin-bottom:0.5rem;">Comience subiendo sus archivos</h3>
-            <p style="color:#888; max-width:400px; margin:0 auto;">
-                Arrastre sus archivos Excel al área de carga superior, o haga clic para seleccionarlos.
-                El sistema validará y procesará automáticamente toda la información.
-            </p>
-            <div style="margin-top:1.5rem; padding:1rem; background:#f0f7ff; border-radius:8px;">
-                <p style="color:#0066CC; font-size:0.85rem; margin:0;">
-                    💡 <strong>Tip:</strong> Seleccione primero el tipo de reporte en el panel lateral
-                </p>
+    if st.session_state.bundle_errors:
+        st.warning("Se detectaron observaciones en el flujo conjunto.")
+        for error in st.session_state.bundle_errors:
+            st.warning(error)
+
+    render_bundle_summary()
+    render_bundle_export()
+
+
+def render_sidebar():
+    mode_def = current_mode()
+    report_cfg = current_report_config()
+
+    with st.sidebar:
+        st.markdown(
+            """
+            <div style="text-align:center;padding:1rem 0;border-bottom:1px solid #e5e7eb;margin-bottom:1rem;">
+                <div style="font-size:2.3rem;">📊</div>
+                <div style="font-size:1.1rem;font-weight:700;color:#12355b;">Reporteador Enterprise</div>
+                <div style="font-size:.75rem;color:#6b7280;">v1.1.0</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        user_col, logout_col = st.columns([3, 1])
+        with user_col:
+            st.markdown(f"**{st.session_state.username}**")
+        with logout_col:
+            if st.button("Salir", key="logout_btn"):
+                st.session_state.authenticated = False
+                st.session_state.username = ""
+                st.rerun()
+
+        st.markdown(
+            f"""
+            <div style="background:#e8f1fb;border-left:4px solid #12355b;padding:.8rem;border-radius:10px;margin:.75rem 0 1rem 0;">
+                <div style="font-size:.82rem;color:#12355b;font-weight:700;">Modo activo</div>
+                <div style="font-size:.95rem;color:#0f172a;">{mode_def['label']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if mode_def["key"] == "conjunto":
+            for report_key in ["emision_mensual", "renovaciones", "vencimientos", "cotizaciones"]:
+                cfg = config.get_report_config(report_key)
+                with st.expander(cfg["name"]):
+                    for col_def in cfg.get("columns", []):
+                        req = "Req." if col_def.get("required") else "Opc."
+                        st.markdown(f"- `{col_def['name']}` · `{col_def['type']}` · {req}")
+        elif report_cfg:
+            with st.expander("Columnas esperadas", expanded=False):
+                for col_def in report_cfg.get("columns", []):
+                    req = "Req." if col_def.get("required") else "Opc."
+                    st.markdown(f"- `{col_def['name']}` · `{col_def['type']}` · {req}")
+
+        with st.expander("Diagnóstico"):
+            if os.path.exists("logs/app.log"):
+                try:
+                    with open("logs/app.log", "r", encoding="utf-8", errors="ignore") as file_obj:
+                        lines = file_obj.readlines()[-15:]
+                    st.code("".join(lines), language="text")
+                except Exception:
+                    st.info("Sin logs disponibles.")
+            else:
+                st.info("Sin logs aún.")
+
+
+st.set_page_config(
+    page_title="Reporteador Comercial Enterprise",
+    layout="wide",
+    page_icon="📊",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    .stApp { background: linear-gradient(180deg, #f4f8fc 0%, #eef4f8 100%); }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+initialize_state()
+
+if not st.session_state.authenticated:
+    render_login()
+    st.stop()
+
+render_sidebar()
+
+st.markdown(
+    '<div style="text-align:center;font-size:2.4rem;font-weight:800;color:#12355b;">Reporteador Comercial Enterprise</div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<div style="text-align:center;color:#5b6470;font-size:1rem;margin-bottom:1rem;">Botones directos en home para emisiones, renovaciones, vencimientos, cotizaciones y flujo conjunto.</div>',
+    unsafe_allow_html=True,
+)
+
+render_mode_buttons()
+render_step_indicator(st.session_state.step)
+
+if current_mode()["key"] == "conjunto":
+    render_combined_flow()
+else:
+    render_single_flow()
+
+if current_mode()["key"] != "conjunto" and st.session_state.processed_df is None:
+    st.markdown(
+        """
+        <div style="text-align:center;background:white;border-radius:18px;padding:2.5rem;margin-top:1.5rem;
+                    box-shadow:0 10px 30px rgba(18,53,91,.08);">
+            <div style="font-size:3rem;">📂</div>
+            <div style="font-size:1.2rem;font-weight:700;color:#12355b;margin:.5rem 0;">Seleccione un flujo y cargue sus archivos</div>
+            <div style="max-width:520px;margin:0 auto;color:#6b7280;">
+                Cada botón de la home prepara un reporte distinto. El modo conjunto permite procesar varias fuentes en la misma corrida.
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )

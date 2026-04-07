@@ -1,5 +1,4 @@
-import pandera as pa
-from typing import Dict, Any, List
+import pandera.pandas as pa
 from .config import ConfigLoader
 
 class SchemaBuilder:

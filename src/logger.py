@@ -15,5 +15,3 @@ def setup_logging():
     }
     logger.configure(**config)
     logger.info("Logging initialized.")
-
-setup_logging()
