@@ -151,21 +151,38 @@ def test_emisiones_template_supports_custom_workbook_layout(tmp_path):
                 "FECHA INICIO VIGENCIA": pd.Timestamp("2026-04-02"),
                 "FECHA FIN VIGENCIA": pd.Timestamp("2027-04-01"),
                 "N° DE POLIZA": "005233258",
+                "EMISION / RENOVACION / REEXPEDICION / CANCELACION": "EMISION",
                 "COMENTARIOS": "Renueva a 005233999",
             },
             {
-                "EJECUTIVO DE CUENTA": "",
+                "EJECUTIVO DE CUENTA": "Claudia Rios",
                 "FECHA EMISION": pd.Timestamp("2026-04-03"),
                 "CLAVE DE AGENTE": "20087",
-                "NOMBRE DE AGENTE": "RISIKO AGENTE DE SEGUROS Y DE FIANZAS S.A DE C.V",
-                "ASEGURADO": "ASEGURADO DIRECTO",
+                "NOMBRE DE AGENTE": "ANA ASESORIA Y PROTECCION PATRIMONIAL SC",
+                "ASEGURADO": "ASEGURADO CLAVE DIRECTA",
                 "TIPO DE NEGOCIO": "FLOTILLA",
                 "PRIMA TOTAL": 15000,
                 "FORMA PAGO": "MENSUAL",
                 "FECHA INICIO VIGENCIA": pd.Timestamp("2026-04-03"),
                 "FECHA FIN VIGENCIA": pd.Timestamp("2027-04-02"),
                 "N° DE POLIZA": "005244000",
+                "EMISION / RENOVACION / REEXPEDICION / CANCELACION": "EMISION",
                 "COMENTARIOS": "",
+            },
+            {
+                "EJECUTIVO DE CUENTA": "Claudia Rios",
+                "FECHA EMISION": pd.Timestamp("2026-04-04"),
+                "CLAVE DE AGENTE": "20087",
+                "NOMBRE DE AGENTE": "ANA ASESORIA Y PROTECCION PATRIMONIAL SC",
+                "ASEGURADO": "ASEGURADO RENOVACION",
+                "TIPO DE NEGOCIO": "FLOTILLA",
+                "PRIMA TOTAL": 15200,
+                "FORMA PAGO": "MENSUAL",
+                "FECHA INICIO VIGENCIA": pd.Timestamp("2026-04-04"),
+                "FECHA FIN VIGENCIA": pd.Timestamp("2027-04-03"),
+                "N° DE POLIZA": "005255000",
+                "EMISION / RENOVACION / REEXPEDICION / CANCELACION": "RENOVACION",
+                "COMENTARIOS": "Renueva a 005000001",
             },
         ]
     )
@@ -190,6 +207,8 @@ def test_emisiones_template_supports_custom_workbook_layout(tmp_path):
     assert ws_exec["A1"].value == "ABRIL 2026"
     assert ws_exec.cell(3, 3).value == "005233258"
     assert ws_exec.cell(3, 14).value == "Hazel Castro"
+    assert ws_exec.cell(4, 3).value == "005255000"
+    assert ws_exec.cell(4, 14).value == "Claudia Rios"
     assert ws_direct.cell(3, 3).value == "005244000"
     assert ws_direct.cell(3, 14).value == "CLAVE DIRECTA"
     assert ws_summary.cell(4, 8).value == "CLAVE DIRECTA"

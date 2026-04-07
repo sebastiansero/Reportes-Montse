@@ -138,8 +138,9 @@ class TemplateFiller:
                 ws.cell(row=row_index, column=col_index, value=self._excel_safe_value(record[source_column]))
 
     def _fill_emisiones_template(self, wb, df: pd.DataFrame) -> None:
-        ejecutivo_df = df[df["EJECUTIVO DE CUENTA"].fillna("").astype(str).str.strip() != ""].copy()
-        directa_df = df[df["EJECUTIVO DE CUENTA"].fillna("").astype(str).str.strip() == ""].copy()
+        direct_mask = self._build_clave_directa_mask(df)
+        ejecutivo_df = df.loc[~direct_mask].copy()
+        directa_df = df.loc[direct_mask].copy()
         directa_df.loc[:, "EJECUTIVO DE CUENTA"] = "CLAVE DIRECTA"
 
         if "EJECUTIVOS" in wb.sheetnames:
@@ -204,7 +205,11 @@ class TemplateFiller:
 
     def _fill_emisiones_summary(self, ws, df: pd.DataFrame) -> None:
         detail = df.copy()
-        detail["RESUMEN_EJECUTIVO"] = detail["EJECUTIVO DE CUENTA"].fillna("").map(clean_text).replace("", "CLAVE DIRECTA")
+        direct_mask = self._build_clave_directa_mask(detail)
+        summary_exec = detail["EJECUTIVO DE CUENTA"].fillna("").map(clean_text)
+        summary_exec = summary_exec.mask(direct_mask, "CLAVE DIRECTA")
+        summary_exec = summary_exec.replace("", "SIN ASIGNAR")
+        detail["RESUMEN_EJECUTIVO"] = summary_exec
         detail["RESUMEN_AGENTE"] = detail["NOMBRE DE AGENTE"].fillna("").map(clean_text).replace("", "SIN AGENTE")
 
         agent_summary = (
@@ -251,6 +256,22 @@ class TemplateFiller:
         ws.cell(total_row, 8, "Total general")
         ws.cell(total_row, 9, int(executive_summary["EMISIONES"].sum()) if not executive_summary.empty else 0)
         ws.cell(total_row, 10, int(executive_summary["EMISIONES"].sum()) if not executive_summary.empty else 0)
+
+    def _build_clave_directa_mask(self, df: pd.DataFrame) -> pd.Series:
+        agent_name = df.get("NOMBRE DE AGENTE", pd.Series("", index=df.index)).fillna("").map(normalize_text)
+        movement = (
+            df.get(
+                "EMISION / RENOVACION / REEXPEDICION / CANCELACION",
+                pd.Series("", index=df.index),
+            )
+            .fillna("")
+            .map(normalize_text)
+        )
+        comments = df.get("COMENTARIOS", pd.Series("", index=df.index)).fillna("").map(normalize_text)
+        return agent_name.str.contains("ANA ASESORIA", na=False) & movement.ne("RENOVACION") & ~comments.str.contains(
+            "RENUEVA A",
+            na=False,
+        )
 
     def _fill_renovaciones_template(self, wb, df: pd.DataFrame, report_config: dict) -> None:
         sheet_name = report_config.get("template_sheet", "CONCENTRADO")

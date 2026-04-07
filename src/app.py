@@ -24,12 +24,16 @@ filler = TemplateFiller()
 MODES = [
     {"key": "emisiones", "label": "Emisiones", "report_key": "emision_mensual"},
     {"key": "renovaciones", "label": "Renovaciones", "report_key": "renovaciones"},
-    {"key": "vencimientos", "label": "Vencimientos", "report_key": "vencimientos"},
     {"key": "cotizaciones", "label": "Cotizaciones", "report_key": "cotizaciones"},
-    {"key": "conjunto", "label": "Conjunto", "report_key": None},
 ]
 MODE_MAP = {mode["key"]: mode for mode in MODES}
 LABEL_TO_KEY = {mode["label"]: mode["key"] for mode in MODES}
+DEFAULT_PASSWORDS = {
+    "montse": "montse2026",
+    "equipo1": "equipo12026",
+    "equipo2": "equipo22026",
+    "equipo3": "equipo32026",
+}
 
 
 def get_mode(mode_key=None):
@@ -38,7 +42,7 @@ def get_mode(mode_key=None):
 
 def get_report_config(mode_key=None):
     mode = get_mode(mode_key)
-    return config.get_report_config(mode["report_key"]) if mode["report_key"] else None
+    return config.get_report_config(mode["report_key"])
 
 
 def initialize_state():
@@ -51,14 +55,13 @@ def initialize_state():
         "kpis": {},
         "download_bytes": None,
         "download_name": "",
-        "bundle_results": {},
-        "bundle_messages": [],
-        "bundle_download": None,
-        "bundle_download_name": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    if st.session_state.active_mode not in MODE_MAP:
+        st.session_state.active_mode = "emisiones"
 
 
 def reset_single():
@@ -69,30 +72,24 @@ def reset_single():
     st.session_state.download_name = ""
 
 
-def reset_bundle():
-    st.session_state.bundle_results = {}
-    st.session_state.bundle_messages = []
-    st.session_state.bundle_download = None
-    st.session_state.bundle_download_name = ""
-
-
 def activate_mode(mode_key):
     if st.session_state.active_mode != mode_key:
         st.session_state.active_mode = mode_key
         reset_single()
-        reset_bundle()
+
+
+def get_passwords():
+    try:
+        secret_passwords = st.secrets.get("passwords", {})
+        if isinstance(secret_passwords, dict) and secret_passwords:
+            return dict(secret_passwords)
+    except Exception:
+        pass
+    return DEFAULT_PASSWORDS
 
 
 def check_credentials(username: str, password: str) -> bool:
-    try:
-        passwords = st.secrets.get("passwords", {})
-        if username in passwords and passwords[username] == password:
-            return True
-    except Exception:
-        pass
-
-    fallback = {"montse": "montse2026", "admin": "admin2026"}
-    return fallback.get(username) == password
+    return get_passwords().get(username) == password
 
 
 def render_login():
@@ -120,7 +117,7 @@ def render_login():
 
 
 def render_header():
-    left, right = st.columns([7, 1.4], gap="small")
+    left, right = st.columns([7, 1.5], gap="small")
     with left:
         st.markdown(
             """
@@ -137,7 +134,6 @@ def render_header():
             st.session_state.authenticated = False
             st.session_state.username = ""
             reset_single()
-            reset_bundle()
             st.rerun()
 
 
@@ -200,10 +196,8 @@ def calculate_quality_score(df, report_type):
     return round((passed_checks / total_checks) * 100) if total_checks else 0
 
 
-def render_section_heading(title, caption=None):
+def render_section_heading(title):
     st.markdown(f"<div class='section-title'>{title}</div>", unsafe_allow_html=True)
-    if caption:
-        st.caption(caption)
 
 
 def render_file_list(files):
@@ -218,10 +212,7 @@ def render_file_list(files):
 
 def render_template_status(report_cfg, template_file):
     if template_file is not None:
-        st.markdown(
-            f"<div class='template-chip'>Plantilla: {template_file.name}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"<div class='template-chip'>Plantilla: {template_file.name}</div>", unsafe_allow_html=True)
         return
 
     default_name = os.path.basename(report_cfg.get("template_path", "plantilla interna"))
@@ -236,8 +227,6 @@ def render_messages(messages):
         lowered = message.lower()
         if "plantilla destino" in lowered:
             st.info(message)
-        elif "carga al menos un archivo" in lowered or "falta el archivo fuente" in lowered:
-            st.warning(message)
         else:
             st.warning(message)
 
@@ -269,7 +258,7 @@ def render_preview(df, key_prefix):
             )
             counts = df[chart_col].replace("", "Sin dato").value_counts().reset_index()
             counts.columns = [chart_col, "Cantidad"]
-            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad", color_discrete_sequence=["#15324a"])
+            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad", color_discrete_sequence=["#9f1239"])
             fig.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -378,105 +367,6 @@ def render_single_flow():
         render_preview(st.session_state.processed_df, mode["key"])
 
 
-def build_bundle_file(datasets):
-    output = filler.fill_combined_report(datasets, config)
-    st.session_state.bundle_download = output.getvalue()
-    st.session_state.bundle_download_name = f"Reporte_Conjunto_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-
-
-def process_bundle(emision_files, vencimiento_files, cotizacion_files):
-    reset_bundle()
-    results = {}
-    messages = []
-
-    if emision_files:
-        raw_df, issues = loader.load_and_validate(emision_files, "emision_mensual")
-        messages.extend([f"Emisiones: {item}" for item in issues])
-        if not raw_df.empty:
-            results["emision_mensual"] = processor.process_data(raw_df, "emision_mensual")
-
-    if vencimiento_files:
-        raw_df, issues = loader.load_and_validate(vencimiento_files, "vencimientos")
-        messages.extend([f"Vencimientos: {item}" for item in issues])
-        if not raw_df.empty:
-            results["vencimientos"] = processor.process_data(raw_df, "vencimientos")
-            results["renovaciones"] = processor.process_data(raw_df, "renovaciones")
-
-    if cotizacion_files:
-        raw_df, issues = loader.load_and_validate(cotizacion_files, "cotizaciones")
-        messages.extend([f"Cotizaciones: {item}" for item in issues])
-        if not raw_df.empty:
-            results["cotizaciones"] = processor.process_data(raw_df, "cotizaciones")
-
-    st.session_state.bundle_results = results
-    st.session_state.bundle_messages = messages
-    if results:
-        build_bundle_file(results)
-
-
-def render_bundle():
-    render_section_heading("Conjunto")
-    cols = st.columns(3, gap="large")
-    labels = [
-        ("Emisiones", ["xlsx", "xls"], "bundle_em"),
-        ("Vencimientos", ["xlsx", "xls"], "bundle_ven"),
-        ("Cotizaciones", ["pdf"], "bundle_cot"),
-    ]
-    uploaded = {}
-
-    for col, (label, file_types, key) in zip(cols, labels):
-        with col:
-            st.markdown(f"<div class='panel-label'>{label}</div>", unsafe_allow_html=True)
-            uploaded[key] = st.file_uploader(
-                label,
-                type=file_types,
-                accept_multiple_files=True,
-                key=key,
-                label_visibility="collapsed",
-            )
-            render_file_list(uploaded[key])
-
-    action_col, download_col = st.columns([1.2, 1], gap="small")
-    with action_col:
-        if st.button("Generar conjunto", key="generate_bundle", type="primary", use_container_width=True):
-            if not any(uploaded.values()):
-                reset_bundle()
-                st.session_state.bundle_messages = ["Falta al menos un archivo fuente."]
-            else:
-                with st.spinner("Generando..."):
-                    process_bundle(
-                        uploaded["bundle_em"] or [],
-                        uploaded["bundle_ven"] or [],
-                        uploaded["bundle_cot"] or [],
-                    )
-    with download_col:
-        if st.session_state.bundle_download:
-            st.download_button(
-                "Descargar",
-                data=st.session_state.bundle_download,
-                file_name=st.session_state.bundle_download_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-    if st.session_state.bundle_messages:
-        render_messages(st.session_state.bundle_messages)
-
-    if st.session_state.bundle_results:
-        summary = {
-            config.get_report_config(report_key)["name"]: len(df)
-            for report_key, df in st.session_state.bundle_results.items()
-        }
-        metric_cols = st.columns(len(summary), gap="small")
-        for col, (label, value) in zip(metric_cols, summary.items()):
-            col.metric(label, value)
-
-        tabs = st.tabs(list(summary.keys()))
-        for tab, (report_key, df) in zip(tabs, st.session_state.bundle_results.items()):
-            with tab:
-                render_preview(df, f"bundle_{report_key}")
-
-
 st.set_page_config(page_title="Montse Reportes", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
@@ -485,14 +375,13 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
     :root {
-        --bg-top: #f8f4ee;
-        --bg-bottom: #eef2f5;
-        --surface: rgba(255,255,255,0.72);
-        --surface-strong: rgba(255,255,255,0.88);
-        --ink: #15324a;
-        --muted: #6f7b86;
-        --line: rgba(21, 50, 74, 0.12);
-        --accent: #c7a574;
+        --bg-top: #fff5f5;
+        --bg-bottom: #f7e7ea;
+        --surface: rgba(255,255,255,0.78);
+        --surface-strong: rgba(255,255,255,0.92);
+        --ink: #881337;
+        --muted: #8f3b56;
+        --line: rgba(136, 19, 55, 0.14);
     }
 
     html, body, [class*="css"] {
@@ -501,15 +390,15 @@ st.markdown(
 
     .stApp {
         background:
-            radial-gradient(circle at top left, rgba(255,255,255,0.92), rgba(255,255,255,0) 33%),
+            radial-gradient(circle at top left, rgba(255,255,255,0.95), rgba(255,255,255,0) 34%),
             linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
         color: var(--ink);
     }
 
     .block-container {
-        max-width: 1240px;
+        max-width: 1180px;
         padding-top: 2rem;
-        padding-bottom: 2.6rem;
+        padding-bottom: 2.4rem;
     }
 
     .login-shell,
@@ -519,7 +408,7 @@ st.markdown(
 
     .login-shell {
         text-align: center;
-        margin-top: 4.4rem;
+        margin-top: 4.6rem;
     }
 
     .eyebrow {
@@ -601,7 +490,7 @@ st.markdown(
 
     div[data-testid="stFileUploaderDropzone"] {
         border-radius: 24px;
-        border: 1px dashed rgba(21, 50, 74, 0.22);
+        border: 1px dashed rgba(136, 19, 55, 0.24);
         background: var(--surface);
         padding: 1.1rem;
     }
@@ -631,7 +520,7 @@ st.markdown(
         background: var(--ink);
         border-color: var(--ink);
         color: #ffffff;
-        box-shadow: 0 16px 34px rgba(21, 50, 74, 0.16);
+        box-shadow: 0 16px 34px rgba(136, 19, 55, 0.18);
     }
 
     div[data-testid="stButton"] button[kind="secondary"],
@@ -673,8 +562,4 @@ if not st.session_state.authenticated:
 
 render_header()
 render_mode_selector()
-
-if get_mode()["key"] == "conjunto":
-    render_bundle()
-else:
-    render_single_flow()
+render_single_flow()
