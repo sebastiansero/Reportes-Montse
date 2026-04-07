@@ -42,7 +42,7 @@ def test_build_renovaciones_dataframe_resolves_truncated_agent_names():
     assert result.iloc[0]["VENCIDA"] == "NO"
 
 
-def test_build_emisiones_dataframe_maps_type_and_executive():
+def test_build_emisiones_dataframe_excludes_rows_with_renewal_number():
     catalog = AgentCatalog.from_dataframe(
         pd.DataFrame(
             [
@@ -66,15 +66,31 @@ def test_build_emisiones_dataframe_maps_type_and_executive():
                 "INICIO VIGENCIA POLIZA": "2026-03-13",
                 "FIN VIGENCIA POLIZA": "2027-03-13",
                 "VIGENTE": "Vigente",
-            }
+            },
+            {
+                "DIVISIONAL": "QUERETARO",
+                "CLAVE AGENTE": "50185",
+                "NOMBRE AGENTE": "ANA ASESORIA Y PROTECCION PATRIMONIAL SC",
+                "POLIZA": "005671710",
+                "RENUEVA A": "",
+                "ASEGURADO": "CLIENTE SIN RENOVACION",
+                "TIPO POLIZA": "INDIVIDUAL",
+                "PRIMA NETA": "10000",
+                "FORMA PAGO": "CONTADO",
+                "FECHA EMISION POLIZA": "2026-03-14",
+                "INICIO VIGENCIA POLIZA": "2026-03-14",
+                "FIN VIGENCIA POLIZA": "2027-03-14",
+                "VIGENTE": "Vigente",
+            },
         ]
     )
 
     result = build_emisiones_dataframe(raw, catalog)
 
+    assert len(result) == 1
     assert result.iloc[0]["EJECUTIVO DE CUENTA"] == "Claudia Rios"
-    assert result.iloc[0]["EMISION / RENOVACION / REEXPEDICION / CANCELACION"] == "RENOVACION"
-    assert result.iloc[0]["N° DE POLIZA"] == "005671709"
+    assert result.iloc[0]["EMISION / RENOVACION / REEXPEDICION / CANCELACION"] == "EMISION"
+    assert result.iloc[0]["N° DE POLIZA"] == "005671710"
 
 
 def test_parse_quote_text_extracts_core_fields():
@@ -86,7 +102,7 @@ def test_parse_quote_text_extracts_core_fields():
         )
     )
     text = """
-    COTIZACIÓN DE SEGUROS AUTOMÓVILES.
+    COTIZACION DE SEGUROS AUTOMOVILES.
     Vigencia: 09/02/2026 AL 09/02/2027 09/02/2026 11:15:30 a. m.
     AGENTE : CLAVE TARIFA : M5004040
     21814

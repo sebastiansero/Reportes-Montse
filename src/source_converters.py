@@ -97,7 +97,7 @@ def build_emisiones_dataframe(df: pd.DataFrame, catalog: AgentCatalog) -> pd.Dat
         }
     )
 
-    mask = policy.ne("") & ~divisional.str.contains("TOTAL", case=False, na=False)
+    mask = policy.ne("") & renews_to.eq("") & ~divisional.str.contains("TOTAL", case=False, na=False)
     return output.loc[mask].reset_index(drop=True)
 
 
