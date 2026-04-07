@@ -63,10 +63,9 @@ class UserStore:
         return self._public_user(user)
 
     def _ensure_store(self) -> None:
-        if self.path.exists():
-            store = self._read_store()
-            if store["users"]:
-                return
+        store = self._read_store()
+        if any(self._normalize_username(user.get("username")) == DEFAULT_ADMIN_USERNAME for user in store["users"]):
+            return
 
         password_hash, password_salt = self._hash_password(DEFAULT_ADMIN_PASSWORD)
         admin_user = {
@@ -78,7 +77,8 @@ class UserStore:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "created_by": "system",
         }
-        self._write_store({"users": [admin_user]})
+        store["users"].insert(0, admin_user)
+        self._write_store(store)
 
     def _read_store(self) -> dict:
         if not self.path.exists():
@@ -104,9 +104,10 @@ class UserStore:
         return hmac.compare_digest(digest, expected_hash)
 
     def _public_user(self, user: dict) -> dict:
+        username = self._normalize_username(user.get("username", ""))
         return {
-            "username": user["username"],
-            "is_admin": bool(user.get("is_admin", False)),
+            "username": username,
+            "is_admin": username == DEFAULT_ADMIN_USERNAME,
             "active": bool(user.get("active", True)),
             "created_at": user.get("created_at", ""),
             "created_by": user.get("created_by", ""),

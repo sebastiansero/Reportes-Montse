@@ -20,3 +20,31 @@ def test_user_store_creates_regular_users(tmp_path):
     assert user["username"] == "equipo4"
     assert user["is_admin"] is False
     assert store.authenticate("equipo4", "secreto123") is not None
+
+
+def test_only_montse_is_admin_even_if_other_user_has_admin_flag(tmp_path):
+    path = tmp_path / "users.json"
+    path.write_text(
+        """
+{
+  "users": [
+    {
+      "username": "equipo1",
+      "password_hash": "x",
+      "password_salt": "y",
+      "is_admin": true,
+      "active": true,
+      "created_at": "",
+      "created_by": "system"
+    }
+  ]
+}
+        """.strip(),
+        encoding="utf-8",
+    )
+
+    store = UserStore(str(path))
+    users = store.list_users()
+
+    assert any(user["username"] == DEFAULT_ADMIN_USERNAME and user["is_admin"] is True for user in users)
+    assert any(user["username"] == "equipo1" and user["is_admin"] is False for user in users)
