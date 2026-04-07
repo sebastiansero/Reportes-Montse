@@ -29,6 +29,7 @@ MODES = [
     {"key": "conjunto", "label": "Conjunto", "report_key": None},
 ]
 MODE_MAP = {mode["key"]: mode for mode in MODES}
+LABEL_TO_KEY = {mode["label"]: mode["key"] for mode in MODES}
 
 
 def get_mode(mode_key=None):
@@ -97,15 +98,14 @@ def check_credentials(username: str, password: str) -> bool:
 def render_login():
     st.markdown(
         """
-        <div class="login-brand">
-            <div class="login-kicker">Montse</div>
+        <div class="login-shell">
+            <div class="eyebrow">Montse</div>
             <h1>Reportes</h1>
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    left, center, right = st.columns([1.3, 1, 1.3])
+    left, center, right = st.columns([1.4, 1, 1.4])
     with center:
         with st.form("login_form"):
             username = st.text_input("Usuario")
@@ -120,22 +120,20 @@ def render_login():
 
 
 def render_header():
-    left, right = st.columns([6, 1.35], gap="small")
-
+    left, right = st.columns([7, 1.4], gap="small")
     with left:
         st.markdown(
             """
-            <div class="hero">
-                <div class="hero-kicker">Montse</div>
+            <div class="hero-shell">
+                <div class="eyebrow">Montse</div>
                 <h1>Reportes</h1>
             </div>
             """,
             unsafe_allow_html=True,
         )
-
     with right:
-        st.markdown(f"<div class='account-chip'>{st.session_state.username}</div>", unsafe_allow_html=True)
-        if st.button("Salir", key="logout", use_container_width=True):
+        st.markdown(f"<div class='user-chip'>{st.session_state.username}</div>", unsafe_allow_html=True)
+        if st.button("Salir", use_container_width=True, key="logout"):
             st.session_state.authenticated = False
             st.session_state.username = ""
             reset_single()
@@ -144,19 +142,17 @@ def render_header():
 
 
 def render_mode_selector():
-    cols = st.columns(len(MODES), gap="small")
-    active_mode = st.session_state.active_mode
-
-    for col, mode in zip(cols, MODES):
-        with col:
-            if st.button(
-                mode["label"],
-                key=f"nav_{mode['key']}",
-                type="primary" if mode["key"] == active_mode else "secondary",
-                use_container_width=True,
-            ):
-                activate_mode(mode["key"])
-                st.rerun()
+    selected = st.segmented_control(
+        "Modulo",
+        options=[mode["label"] for mode in MODES],
+        default=get_mode()["label"],
+        selection_mode="single",
+        label_visibility="collapsed",
+    )
+    selected_key = LABEL_TO_KEY.get(selected, st.session_state.active_mode)
+    if selected_key != st.session_state.active_mode:
+        activate_mode(selected_key)
+        st.rerun()
 
 
 def format_bytes(size):
@@ -204,6 +200,12 @@ def calculate_quality_score(df, report_type):
     return round((passed_checks / total_checks) * 100) if total_checks else 0
 
 
+def render_section_heading(title, caption=None):
+    st.markdown(f"<div class='section-title'>{title}</div>", unsafe_allow_html=True)
+    if caption:
+        st.caption(caption)
+
+
 def render_file_list(files):
     if not files:
         return
@@ -214,11 +216,28 @@ def render_file_list(files):
     st.markdown(f"<div class='file-list'>{rows}</div>", unsafe_allow_html=True)
 
 
+def render_template_status(report_cfg, template_file):
+    if template_file is not None:
+        st.markdown(
+            f"<div class='template-chip'>Plantilla: {template_file.name}</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    default_name = os.path.basename(report_cfg.get("template_path", "plantilla interna"))
+    st.markdown(
+        f"<div class='template-chip muted'>Plantilla interna: {default_name}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_messages(messages):
     for message in messages:
         lowered = message.lower()
-        if "plantilla de salida" in lowered:
+        if "plantilla destino" in lowered:
             st.info(message)
+        elif "carga al menos un archivo" in lowered or "falta el archivo fuente" in lowered:
+            st.warning(message)
         else:
             st.warning(message)
 
@@ -242,23 +261,22 @@ def render_preview(df, key_prefix):
 
     with tabs[0]:
         if text_cols:
-            st.markdown("<div class='field-label'>Vista por</div>", unsafe_allow_html=True)
             chart_col = st.selectbox(
-                "Vista por",
+                "Agrupar por",
                 text_cols,
                 key=f"{key_prefix}_chart",
                 label_visibility="collapsed",
             )
             counts = df[chart_col].replace("", "Sin dato").value_counts().reset_index()
             counts.columns = [chart_col, "Cantidad"]
-            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad")
-            fig.update_traces(marker_color="#183650", marker_line_color="#183650")
+            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad", color_discrete_sequence=["#15324a"])
             fig.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 xaxis_title=None,
                 yaxis_title=None,
+                showlegend=False,
             )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
         else:
@@ -278,13 +296,18 @@ def render_preview(df, key_prefix):
         st.dataframe(display_df, use_container_width=True, hide_index=True, height=420)
 
 
-def build_report_file(df, report_key, label):
-    output = filler.fill_template(df, config.get_report_config(report_key))
+def build_report_file(df, report_key, label, template_file=None):
+    output = filler.fill_template(
+        df,
+        config.get_report_config(report_key),
+        report_key=report_key,
+        template_bytes=template_file.getvalue() if template_file is not None else None,
+    )
     st.session_state.download_bytes = output.getvalue()
     st.session_state.download_name = f"{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
 
-def process_single(files, mode):
+def process_single(files, mode, template_file=None):
     reset_single()
     report_key = mode["report_key"]
     raw_df, messages = loader.load_and_validate(files, report_key)
@@ -295,43 +318,60 @@ def process_single(files, mode):
     processed_df = processor.process_data(raw_df, report_key)
     st.session_state.processed_df = processed_df
     st.session_state.kpis = KPIEngine.calculate(processed_df, report_key)
-    build_report_file(processed_df, report_key, mode["label"])
+    build_report_file(processed_df, report_key, mode["label"], template_file=template_file)
 
 
 def render_single_flow():
     mode = get_mode()
     report_cfg = get_report_config()
-    allowed_extensions = [ext.lstrip(".") for ext in report_cfg.get("input_extensions", [".xlsx", ".xls"])]
+    source_types = [ext.lstrip(".") for ext in report_cfg.get("input_extensions", [".xlsx", ".xls"])]
 
-    st.markdown(f"<h2 class='section-title'>{mode['label']}</h2>", unsafe_allow_html=True)
-    files = st.file_uploader(
-        "Archivos",
-        type=allowed_extensions,
-        accept_multiple_files=True,
-        key=f"uploader_{mode['key']}",
-        label_visibility="collapsed",
-    )
-    render_file_list(files)
+    render_section_heading(mode["label"])
+    source_col, template_col = st.columns([1.8, 1], gap="large")
 
-    if st.button("Generar reporte", key=f"generate_{mode['key']}", type="primary", use_container_width=True):
-        if not files:
-            reset_single()
-            st.session_state.messages = ["Carga al menos un archivo."]
-        else:
-            with st.spinner("Generando..."):
-                process_single(files, mode)
+    with source_col:
+        st.markdown("<div class='panel-label'>Fuente</div>", unsafe_allow_html=True)
+        files = st.file_uploader(
+            "Fuente",
+            type=source_types,
+            accept_multiple_files=True,
+            key=f"source_{mode['key']}",
+            label_visibility="collapsed",
+        )
+        render_file_list(files)
+
+    with template_col:
+        st.markdown("<div class='panel-label'>Plantilla</div>", unsafe_allow_html=True)
+        template_file = st.file_uploader(
+            "Plantilla",
+            type=["xlsx", "xlsm", "xls"],
+            accept_multiple_files=False,
+            key=f"template_{mode['key']}",
+            label_visibility="collapsed",
+        )
+        render_template_status(report_cfg, template_file)
+
+    action_col, download_col = st.columns([1.2, 1], gap="small")
+    with action_col:
+        if st.button("Generar reporte", key=f"generate_{mode['key']}", type="primary", use_container_width=True):
+            if not files:
+                reset_single()
+                st.session_state.messages = ["Falta el archivo fuente."]
+            else:
+                with st.spinner("Generando..."):
+                    process_single(files, mode, template_file=template_file)
+    with download_col:
+        if st.session_state.download_bytes:
+            st.download_button(
+                "Descargar",
+                data=st.session_state.download_bytes,
+                file_name=st.session_state.download_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
     if st.session_state.messages:
         render_messages(st.session_state.messages)
-
-    if st.session_state.download_bytes:
-        st.download_button(
-            "Descargar reporte",
-            data=st.session_state.download_bytes,
-            file_name=st.session_state.download_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
 
     if st.session_state.processed_df is not None and not st.session_state.processed_df.empty:
         render_metrics_block(st.session_state.processed_df, mode["report_key"])
@@ -375,69 +415,60 @@ def process_bundle(emision_files, vencimiento_files, cotizacion_files):
 
 
 def render_bundle():
-    st.markdown("<h2 class='section-title'>Conjunto</h2>", unsafe_allow_html=True)
-    cols = st.columns(3, gap="small")
+    render_section_heading("Conjunto")
+    cols = st.columns(3, gap="large")
+    labels = [
+        ("Emisiones", ["xlsx", "xls"], "bundle_em"),
+        ("Vencimientos", ["xlsx", "xls"], "bundle_ven"),
+        ("Cotizaciones", ["pdf"], "bundle_cot"),
+    ]
+    uploaded = {}
 
-    with cols[0]:
-        st.markdown("<div class='bucket-title'>Emisiones</div>", unsafe_allow_html=True)
-        emision_files = st.file_uploader(
-            "Emisiones",
-            type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="bundle_em",
-            label_visibility="collapsed",
-        )
-        render_file_list(emision_files)
+    for col, (label, file_types, key) in zip(cols, labels):
+        with col:
+            st.markdown(f"<div class='panel-label'>{label}</div>", unsafe_allow_html=True)
+            uploaded[key] = st.file_uploader(
+                label,
+                type=file_types,
+                accept_multiple_files=True,
+                key=key,
+                label_visibility="collapsed",
+            )
+            render_file_list(uploaded[key])
 
-    with cols[1]:
-        st.markdown("<div class='bucket-title'>Vencimientos</div>", unsafe_allow_html=True)
-        vencimiento_files = st.file_uploader(
-            "Vencimientos",
-            type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="bundle_ven",
-            label_visibility="collapsed",
-        )
-        render_file_list(vencimiento_files)
-
-    with cols[2]:
-        st.markdown("<div class='bucket-title'>Cotizaciones</div>", unsafe_allow_html=True)
-        cotizacion_files = st.file_uploader(
-            "Cotizaciones",
-            type=["pdf"],
-            accept_multiple_files=True,
-            key="bundle_cot",
-            label_visibility="collapsed",
-        )
-        render_file_list(cotizacion_files)
-
-    if st.button("Generar conjunto", key="generate_bundle", type="primary", use_container_width=True):
-        if not any([emision_files, vencimiento_files, cotizacion_files]):
-            reset_bundle()
-            st.session_state.bundle_messages = ["Carga al menos un archivo."]
-        else:
-            with st.spinner("Generando..."):
-                process_bundle(emision_files or [], vencimiento_files or [], cotizacion_files or [])
+    action_col, download_col = st.columns([1.2, 1], gap="small")
+    with action_col:
+        if st.button("Generar conjunto", key="generate_bundle", type="primary", use_container_width=True):
+            if not any(uploaded.values()):
+                reset_bundle()
+                st.session_state.bundle_messages = ["Falta al menos un archivo fuente."]
+            else:
+                with st.spinner("Generando..."):
+                    process_bundle(
+                        uploaded["bundle_em"] or [],
+                        uploaded["bundle_ven"] or [],
+                        uploaded["bundle_cot"] or [],
+                    )
+    with download_col:
+        if st.session_state.bundle_download:
+            st.download_button(
+                "Descargar",
+                data=st.session_state.bundle_download,
+                file_name=st.session_state.bundle_download_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
     if st.session_state.bundle_messages:
         render_messages(st.session_state.bundle_messages)
-
-    if st.session_state.bundle_download:
-        st.download_button(
-            "Descargar conjunto",
-            data=st.session_state.bundle_download,
-            file_name=st.session_state.bundle_download_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
 
     if st.session_state.bundle_results:
         summary = {
             config.get_report_config(report_key)["name"]: len(df)
             for report_key, df in st.session_state.bundle_results.items()
         }
-        cols = st.columns(len(summary), gap="small")
-        for col, (label, value) in zip(cols, summary.items()):
+        metric_cols = st.columns(len(summary), gap="small")
+        for col, (label, value) in zip(metric_cols, summary.items()):
             col.metric(label, value)
 
         tabs = st.tabs(list(summary.keys()))
@@ -451,7 +482,18 @@ st.set_page_config(page_title="Montse Reportes", layout="wide", initial_sidebar_
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+    :root {
+        --bg-top: #f8f4ee;
+        --bg-bottom: #eef2f5;
+        --surface: rgba(255,255,255,0.72);
+        --surface-strong: rgba(255,255,255,0.88);
+        --ink: #15324a;
+        --muted: #6f7b86;
+        --line: rgba(21, 50, 74, 0.12);
+        --accent: #c7a574;
+    }
 
     html, body, [class*="css"] {
         font-family: 'Manrope', sans-serif;
@@ -459,129 +501,150 @@ st.markdown(
 
     .stApp {
         background:
-            radial-gradient(circle at top left, rgba(255,255,255,0.96), rgba(255,255,255,0) 36%),
-            linear-gradient(180deg, #f4f7fa 0%, #ebf0f5 100%);
-        color: #152334;
+            radial-gradient(circle at top left, rgba(255,255,255,0.92), rgba(255,255,255,0) 33%),
+            linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+        color: var(--ink);
     }
 
     .block-container {
         max-width: 1240px;
         padding-top: 2rem;
-        padding-bottom: 2.4rem;
+        padding-bottom: 2.6rem;
     }
 
-    .hero,
-    .login-brand {
+    .login-shell,
+    .hero-shell {
         margin-bottom: 1rem;
     }
 
-    .hero-kicker,
-    .login-kicker {
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: #637487;
-    }
-
-    .hero h1,
-    .login-brand h1 {
-        margin: 0.15rem 0 0 0;
-        font-size: 2.45rem;
-        line-height: 1;
-        letter-spacing: -0.05em;
-        color: #17324d;
-    }
-
-    .login-brand {
+    .login-shell {
         text-align: center;
-        margin-top: 5rem;
+        margin-top: 4.4rem;
     }
 
-    .account-chip {
+    .eyebrow {
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    .login-shell h1,
+    .hero-shell h1 {
+        margin: 0.2rem 0 0 0;
+        font-family: 'Fraunces', serif;
+        font-size: 2.6rem;
+        line-height: 1;
+        letter-spacing: -0.04em;
+        color: var(--ink);
+    }
+
+    .user-chip {
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 2.8rem;
+        min-height: 2.85rem;
         margin-top: 0.55rem;
-        margin-bottom: 0.5rem;
-        border: 1px solid rgba(23, 50, 77, 0.12);
+        margin-bottom: 0.45rem;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.74);
-        color: #17324d;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--ink);
         font-size: 0.92rem;
-        font-weight: 600;
+        font-weight: 700;
     }
 
     .section-title {
-        margin: 1.5rem 0 0.85rem 0;
-        font-size: 1.4rem;
-        letter-spacing: -0.04em;
-        color: #17324d;
+        margin: 1.45rem 0 0.85rem 0;
+        font-family: 'Fraunces', serif;
+        font-size: 1.5rem;
+        letter-spacing: -0.03em;
+        color: var(--ink);
     }
 
-    .bucket-title,
-    .field-label {
-        margin-bottom: 0.4rem;
-        font-size: 0.84rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
+    .panel-label {
+        margin-bottom: 0.55rem;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
-        color: #6a7b8d;
+        color: var(--muted);
     }
 
     .file-list {
         display: grid;
         gap: 0.5rem;
-        margin: 0.9rem 0 1rem 0;
+        margin-top: 0.9rem;
     }
 
-    .file-pill {
+    .file-pill,
+    .template-chip {
         display: flex;
         justify-content: space-between;
         gap: 1rem;
-        padding: 0.78rem 0.95rem;
-        border: 1px solid rgba(23, 50, 77, 0.1);
+        padding: 0.8rem 0.95rem;
         border-radius: 18px;
-        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--ink);
         font-size: 0.9rem;
-        color: #17324d;
+    }
+
+    .template-chip {
+        margin-top: 0.9rem;
+    }
+
+    .template-chip.muted {
+        color: var(--muted);
     }
 
     div[data-testid="stFileUploaderDropzone"] {
-        border: 1px dashed rgba(23, 50, 77, 0.22);
-        border-radius: 22px;
-        background: rgba(255, 255, 255, 0.72);
-        padding: 0.9rem;
+        border-radius: 24px;
+        border: 1px dashed rgba(21, 50, 74, 0.22);
+        background: var(--surface);
+        padding: 1.1rem;
     }
 
-    div[data-testid="stFileUploaderDropzone"] button,
-    div[data-testid="stDownloadButton"] button,
-    div[data-testid="stButton"] button {
+    div[data-testid="stSegmentedControl"] {
+        margin-bottom: 0.7rem;
+    }
+
+    div[data-testid="stSegmentedControl"] button {
+        min-height: 2.85rem;
         border-radius: 999px;
-        min-height: 2.8rem;
         font-weight: 700;
-        border: 1px solid rgba(23, 50, 77, 0.12);
+    }
+
+    div[data-testid="stButton"] button,
+    div[data-testid="stDownloadButton"] button,
+    div[data-testid="stFileUploaderDropzone"] button,
+    div[data-testid="stFormSubmitButton"] button {
+        min-height: 2.9rem;
+        border-radius: 999px;
+        font-weight: 700;
+        border: 1px solid var(--line);
+    }
+
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stFormSubmitButton"] button[kind="primary"] {
+        background: var(--ink);
+        border-color: var(--ink);
+        color: #ffffff;
+        box-shadow: 0 16px 34px rgba(21, 50, 74, 0.16);
     }
 
     div[data-testid="stButton"] button[kind="secondary"],
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stFileUploaderDropzone"] button {
-        background: rgba(255, 255, 255, 0.78);
-        color: #17324d;
-    }
-
-    div[data-testid="stButton"] button[kind="primary"] {
-        background: #17324d;
-        color: #ffffff;
-        border-color: #17324d;
-        box-shadow: 0 14px 32px rgba(23, 50, 77, 0.16);
+        background: var(--surface-strong);
+        color: var(--ink);
     }
 
     div[data-testid="stMetric"] {
-        border: 1px solid rgba(23, 50, 77, 0.1);
         border-radius: 22px;
-        background: rgba(255, 255, 255, 0.78);
+        border: 1px solid var(--line);
+        background: var(--surface-strong);
         padding: 0.35rem 0.55rem;
     }
 
@@ -589,8 +652,12 @@ st.markdown(
         border-radius: 999px;
     }
 
-    div[data-testid="stDataFrame"] {
+    div[data-testid="stAlert"] {
         border-radius: 18px;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 20px;
         overflow: hidden;
     }
     </style>

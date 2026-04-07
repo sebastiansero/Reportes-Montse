@@ -78,7 +78,9 @@ class ExcelLoader:
 
                 if transformed.empty:
                     if self._looks_like_output_template(file_name, raw_df, report_config):
-                        errors.append(f"{file_name}: es una plantilla de salida; no hace falta cargarla.")
+                        errors.append(
+                            f"{file_name}: se detecto como plantilla destino. Cargala en Plantilla o agrega tambien el archivo fuente."
+                        )
                     else:
                         errors.append(f"{file_name}: no se encontraron registros utiles despues de transformar el archivo.")
                     continue

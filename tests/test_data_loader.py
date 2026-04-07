@@ -33,4 +33,4 @@ def test_template_file_is_flagged_as_output_template(tmp_path):
 
     assert df.empty
     assert errors
-    assert "plantilla de salida" in errors[0].lower()
+    assert "plantilla destino" in errors[0].lower()

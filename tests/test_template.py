@@ -103,6 +103,98 @@ def test_renovaciones_template_preserves_formula_columns(tmp_path):
     assert ws.cell(2, 4).value == '=IF(B2="","",IF(B2<=C2,"SI","NO"))'
 
 
+def test_emisiones_template_supports_custom_workbook_layout(tmp_path):
+    template_path = tmp_path / "template_emisiones.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DESGLOCE"
+    for col in range(2, 11):
+        ws.cell(4, col, None)
+    ws_exec = wb.create_sheet("EJECUTIVOS")
+    ws_direct = wb.create_sheet("CLAVE DIRECTA")
+
+    headers = [
+        "FECHA EMISION",
+        "N° EMISION",
+        "N° DE POLIZA",
+        "TIPO DE NEGOCIO",
+        "FECHA INICIO VIGENCIA",
+        "FECHA FIN VIGENCIA",
+        "COBERTURA",
+        "ASEGURADO",
+        "COD. AGENTE",
+        "NOMBRE DE AGENTE",
+        "PRIMA TOTAL",
+        "FORMA PAGO",
+        "PAGADO / NO PAGADO",
+        "EJECUTIVO",
+        "COMENTARIOS",
+    ]
+
+    for sheet in [ws_exec, ws_direct]:
+        sheet.cell(1, 1, "MARZO 2026")
+        for idx, header in enumerate(headers, start=1):
+            sheet.cell(2, idx, header)
+            sheet.cell(3, idx, None)
+
+    df = pd.DataFrame(
+        [
+            {
+                "EJECUTIVO DE CUENTA": "Hazel Castro",
+                "FECHA EMISION": pd.Timestamp("2026-04-02"),
+                "CLAVE DE AGENTE": "00355",
+                "NOMBRE DE AGENTE": "ESTEBAN FUENTES NIVON",
+                "ASEGURADO": "CARMEN RAMIREZ GARCI",
+                "TIPO DE NEGOCIO": "INDIVIDUAL",
+                "PRIMA TOTAL": 9354,
+                "FORMA PAGO": "CONTADO",
+                "FECHA INICIO VIGENCIA": pd.Timestamp("2026-04-02"),
+                "FECHA FIN VIGENCIA": pd.Timestamp("2027-04-01"),
+                "N° DE POLIZA": "005233258",
+                "COMENTARIOS": "Renueva a 005233999",
+            },
+            {
+                "EJECUTIVO DE CUENTA": "",
+                "FECHA EMISION": pd.Timestamp("2026-04-03"),
+                "CLAVE DE AGENTE": "20087",
+                "NOMBRE DE AGENTE": "RISIKO AGENTE DE SEGUROS Y DE FIANZAS S.A DE C.V",
+                "ASEGURADO": "ASEGURADO DIRECTO",
+                "TIPO DE NEGOCIO": "FLOTILLA",
+                "PRIMA TOTAL": 15000,
+                "FORMA PAGO": "MENSUAL",
+                "FECHA INICIO VIGENCIA": pd.Timestamp("2026-04-03"),
+                "FECHA FIN VIGENCIA": pd.Timestamp("2027-04-02"),
+                "N° DE POLIZA": "005244000",
+                "COMENTARIOS": "",
+            },
+        ]
+    )
+
+    report_config = {
+        "template_path": str(template_path),
+        "template_sheet": "EJECUTIVOS",
+        "template_header_row": 2,
+        "template_data_row": 3,
+        "source_type": "emisiones",
+    }
+
+    wb.save(template_path)
+    filler = TemplateFiller(str(tmp_path))
+    output = filler.fill_template(df, report_config, report_key="emision_mensual")
+    loaded = load_workbook(BytesIO(output.getvalue()))
+
+    ws_exec = loaded["EJECUTIVOS"]
+    ws_direct = loaded["CLAVE DIRECTA"]
+    ws_summary = loaded["DESGLOCE"]
+
+    assert ws_exec["A1"].value == "ABRIL 2026"
+    assert ws_exec.cell(3, 3).value == "005233258"
+    assert ws_exec.cell(3, 14).value == "Hazel Castro"
+    assert ws_direct.cell(3, 3).value == "005244000"
+    assert ws_direct.cell(3, 14).value == "CLAVE DIRECTA"
+    assert ws_summary.cell(4, 8).value == "CLAVE DIRECTA"
+
+
 def test_combined_workbook_contains_each_report_sheet(tmp_path):
     operativo_path = tmp_path / "template_operativo.xlsx"
     renovaciones_path = tmp_path / "template_renovaciones.xlsx"
