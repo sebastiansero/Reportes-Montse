@@ -1,69 +1,268 @@
 app_name: "Reporteador Comercial Enterprise"
-version: "1.0.0"
+version: "1.1.0"
 
-files:
-  input_extensions: [".xlsx", ".xls"]
-  output_extension: ".xlsx"
+assets:
+  agent_catalog_path: "config/base_agentes_2026.xlsx"
 
 reports:
   emision_mensual:
-    name: "Emisión mensual"
-    sheet_name: "Emisión"
+    name: "Emisiones y cancelaciones"
+    source_type: "emisiones"
+    input_extensions: [".xlsx", ".xls"]
+    template_path: "templates/template_operativo.xlsx"
+    template_sheet: "EMISIONES Y CANCELACIONES"
+    combined_sheet_name: "Emisiones"
+    template_header_row: 2
+    template_data_row: 3
+    source_headers:
+      - "DIVISIONAL"
+      - "CLAVE AGENTE"
+      - "NOMBRE AGENTE"
+      - "POLIZA"
+      - "ASEGURADO"
+      - "FECHA EMISION POLIZA"
+      - "INICIO VIGENCIA POLIZA"
+      - "FIN VIGENCIA POLIZA"
+      - "FORMA PAGO"
+      - "PRIMA NETA"
+      - "TIPO POLIZA"
+      - "RENUEVA A"
     columns:
-      - name: "Fecha emisión"
-        type: "datetime"
-        required: true
-        aliases: ["F. Emisión", "F.Emision", "Fecha de Emision"]
-      - name: "Número de emisión"
-        type: "str"
-        required: true
-      - name: "Número de póliza"
-        type: "str"
-        required: true
-        aliases: ["Poliza", "No. Poliza"]
-      - name: "Tipo de negocio"
+      - name: "EJECUTIVO DE CUENTA"
         type: "str"
         required: false
-      - name: "Fecha inicio vigencia"
+      - name: "FECHA EMISION"
         type: "datetime"
         required: true
-      - name: "Prima total"
+      - name: "CLAVE DE AGENTE"
+        type: "str"
+        required: false
+      - name: "NOMBRE DE AGENTE"
+        type: "str"
+        required: true
+      - name: "ASEGURADO"
+        type: "str"
+        required: true
+      - name: "TIPO DE NEGOCIO"
+        type: "str"
+        required: false
+      - name: "PRIMA TOTAL"
         type: "float"
         required: true
-        aliases: ["Prima neta", "Importe"]
-      - name: "Ejecutivo"
+      - name: "FORMA PAGO"
         type: "str"
         required: false
-      - name: "Agente"
+      - name: "FECHA INICIO VIGENCIA"
+        type: "datetime"
+        required: true
+      - name: "FECHA FIN VIGENCIA"
+        type: "datetime"
+        required: true
+      - name: "N° DE POLIZA"
+        type: "str"
+        required: true
+      - name: "EMISION / RENOVACION / REEXPEDICION / CANCELACION"
+        type: "str"
+        required: true
+      - name: "COMENTARIOS"
         type: "str"
         required: false
-        aliases: ["Nombre de agente", "Código de agente"]
 
   renovaciones:
     name: "Renovaciones"
-    sheet_name: "Renovaciones"
+    source_type: "renovaciones"
+    input_extensions: [".xlsx", ".xls"]
+    template_path: "templates/template_renovaciones.xlsx"
+    template_sheet: "CONCENTRADO"
+    combined_sheet_name: "Renovaciones"
+    template_header_row: 1
+    template_data_row: 2
+    source_headers:
+      - "DIA VTO"
+      - "MES"
+      - "ANIO"
+      - "POLIZA"
+      - "COD ASEG"
+      - "NOMBRE DEL ASEG."
+      - "COD. AGTE."
+      - "NOMBRE DEL AGTE."
+      - "MON."
+      - "PRIMA TOTAL"
+      - "STROS"
+      - "PRIMA NUEVA"
     columns:
-      - name: "Fecha vencimiento"
+      - name: "FECHA VTO"
         type: "datetime"
         required: true
-      - name: "Póliza"
+      - name: "HOY"
+        type: "datetime"
+        required: true
+      - name: "VENCIDA"
         type: "str"
         required: true
-      - name: "Renovada"
+        allowed_values: ["SI", "NO"]
+      - name: "POLIZA"
         type: "str"
         required: true
-        allowed_values: ["Si", "No", "Pendiente"]
+      - name: "COD ASEG"
+        type: "str"
+        required: false
+      - name: "NOMBRE DEL ASEG."
+        type: "str"
+        required: true
+      - name: "COD. AGTE."
+        type: "str"
+        required: false
+      - name: "NOMBRE DEL AGTE."
+        type: "str"
+        required: true
+      - name: "MON."
+        type: "str"
+        required: false
+      - name: "PRIMA TOTAL"
+        type: "float"
+        required: false
+      - name: "STROS"
+        type: "str"
+        required: false
+      - name: "RENOVACION"
+        type: "float"
+        required: false
+      - name: "EJECUTIVO"
+        type: "str"
+        required: false
+      - name: "RENOVADA"
+        type: "str"
+        required: false
+      - name: "ESTATUS"
+        type: "str"
+        required: true
+      - name: "COMENTARIOS"
+        type: "str"
+        required: false
+
+  vencimientos:
+    name: "Vencimientos"
+    source_type: "renovaciones"
+    input_extensions: [".xlsx", ".xls"]
+    template_path: "templates/template_vencimientos.xlsx"
+    template_sheet: "VENCIMIENTOS"
+    combined_sheet_name: "Vencimientos"
+    template_header_row: 1
+    template_data_row: 2
+    source_headers:
+      - "DIA VTO"
+      - "MES"
+      - "ANIO"
+      - "POLIZA"
+      - "COD ASEG"
+      - "NOMBRE DEL ASEG."
+      - "COD. AGTE."
+      - "NOMBRE DEL AGTE."
+      - "MON."
+      - "PRIMA TOTAL"
+      - "STROS"
+      - "PRIMA NUEVA"
+    columns:
+      - name: "FECHA VTO"
+        type: "datetime"
+        required: true
+      - name: "HOY"
+        type: "datetime"
+        required: true
+      - name: "VENCIDA"
+        type: "str"
+        required: true
+        allowed_values: ["SI", "NO"]
+      - name: "POLIZA"
+        type: "str"
+        required: true
+      - name: "COD ASEG"
+        type: "str"
+        required: false
+      - name: "NOMBRE DEL ASEG."
+        type: "str"
+        required: true
+      - name: "COD. AGTE."
+        type: "str"
+        required: false
+      - name: "NOMBRE DEL AGTE."
+        type: "str"
+        required: true
+      - name: "MON."
+        type: "str"
+        required: false
+      - name: "PRIMA TOTAL"
+        type: "float"
+        required: false
+      - name: "STROS"
+        type: "str"
+        required: false
+      - name: "RENOVACION"
+        type: "float"
+        required: false
+      - name: "EJECUTIVO"
+        type: "str"
+        required: false
+      - name: "RENOVADA"
+        type: "str"
+        required: false
+      - name: "ESTATUS"
+        type: "str"
+        required: true
+      - name: "COMENTARIOS"
+        type: "str"
+        required: false
 
   cotizaciones:
-    name: "Cotizaciones"
-    sheet_name: "Cotizaciones"
+    name: "Cotizaciones PDF"
+    source_type: "cotizaciones"
+    input_extensions: [".pdf"]
+    template_path: "templates/template_operativo.xlsx"
+    template_sheet: "COTIZACIONES"
+    combined_sheet_name: "Cotizaciones"
+    template_header_row: 1
+    template_data_row: 2
     columns:
-      - name: "Ejecutivo de cuenta"
+      - name: "EJECUTIVO DE CUENTA"
         type: "str"
-        required: true
-      - name: "Fecha solicitud"
+        required: false
+      - name: "FECHA SOLICITUD DE COTIZACION"
         type: "datetime"
         required: true
-      - name: "Estatus"
+      - name: "CLAVE DE AGENTE QUE SOLICITA"
+        type: "str"
+        required: false
+      - name: "NOMBRE DE AGENTE QUE SOLICITA"
         type: "str"
         required: true
+      - name: "UNIDAD"
+        type: "str"
+        required: true
+      - name: "TIPO DE NEGOCIO"
+        type: "str"
+        required: false
+      - name: "PRIMA TOTAL"
+        type: "float"
+        required: true
+      - name: "FORMA PAGO"
+        type: "str"
+        required: false
+      - name: "POLIZA NUEVA EMISION / RENOVACION"
+        type: "str"
+        required: false
+      - name: "FECHA ENVIO DE COTIZACION"
+        type: "datetime"
+        required: true
+      - name: "FECHA DE SEGUIMIENTO (Ejecutivo de Cuenta)"
+        type: "datetime"
+        required: false
+      - name: "ESTATUS"
+        type: "str"
+        required: true
+      - name: "MOTIVO DE RECHAZO"
+        type: "str"
+        required: false
+      - name: "COMENTARIOS"
+        type: "str"
+        required: false
