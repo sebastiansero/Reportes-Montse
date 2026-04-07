@@ -2,6 +2,7 @@ import os
 import sys
 from datetime import datetime
 
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
@@ -12,6 +13,7 @@ from src.data_loader import ExcelLoader
 from src.logger import setup_logging
 from src.services import KPIEngine, ReportProcessor
 from src.template_engine import TemplateFiller
+from src.user_store import DEFAULT_ADMIN_USERNAME, UserStore
 
 
 setup_logging()
@@ -19,49 +21,56 @@ config = ConfigLoader()
 loader = ExcelLoader(config)
 processor = ReportProcessor(config)
 filler = TemplateFiller()
+user_store = UserStore()
 
 
-MODES = [
+REPORT_MODES = [
     {"key": "emisiones", "label": "Emisiones", "report_key": "emision_mensual"},
     {"key": "renovaciones", "label": "Renovaciones", "report_key": "renovaciones"},
     {"key": "cotizaciones", "label": "Cotizaciones", "report_key": "cotizaciones"},
 ]
-MODE_MAP = {mode["key"]: mode for mode in MODES}
-LABEL_TO_KEY = {mode["label"]: mode["key"] for mode in MODES}
-DEFAULT_PASSWORDS = {
-    "montse": "montse2026",
-    "equipo1": "equipo12026",
-    "equipo2": "equipo22026",
-    "equipo3": "equipo32026",
-}
+ADMIN_MODE = {"key": "accesos", "label": "Accesos", "report_key": None}
+
+
+def available_modes():
+    modes = list(REPORT_MODES)
+    if st.session_state.get("is_admin", False):
+        modes.append(ADMIN_MODE)
+    return modes
 
 
 def get_mode(mode_key=None):
-    return MODE_MAP[mode_key or st.session_state.active_mode]
+    mode_map = {mode["key"]: mode for mode in available_modes()}
+    key = mode_key or st.session_state.get("active_mode", REPORT_MODES[0]["key"])
+    if key not in mode_map:
+        key = REPORT_MODES[0]["key"]
+    return mode_map[key]
 
 
 def get_report_config(mode_key=None):
     mode = get_mode(mode_key)
-    return config.get_report_config(mode["report_key"])
+    return config.get_report_config(mode["report_key"]) if mode["report_key"] else None
 
 
 def initialize_state():
     defaults = {
         "authenticated": False,
         "username": "",
+        "is_admin": False,
         "active_mode": "emisiones",
         "processed_df": None,
         "messages": [],
         "kpis": {},
         "download_bytes": None,
         "download_name": "",
+        "access_feedback": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    if st.session_state.active_mode not in MODE_MAP:
-        st.session_state.active_mode = "emisiones"
+    if st.session_state.active_mode not in {mode["key"] for mode in available_modes()}:
+        st.session_state.active_mode = REPORT_MODES[0]["key"]
 
 
 def reset_single():
@@ -78,18 +87,12 @@ def activate_mode(mode_key):
         reset_single()
 
 
-def get_passwords():
-    try:
-        secret_passwords = st.secrets.get("passwords", {})
-        if isinstance(secret_passwords, dict) and secret_passwords:
-            return dict(secret_passwords)
-    except Exception:
-        pass
-    return DEFAULT_PASSWORDS
+def authenticate_user(username: str, password: str):
+    return user_store.authenticate(username, password)
 
 
-def check_credentials(username: str, password: str) -> bool:
-    return get_passwords().get(username) == password
+def set_access_feedback(kind: str, message: str):
+    st.session_state.access_feedback = {"kind": kind, "message": message}
 
 
 def render_login():
@@ -98,27 +101,41 @@ def render_login():
         <div class="login-shell">
             <div class="login-kicker">Plataforma Interna</div>
             <h1>Reportes Comerciales</h1>
-            <div class="login-rule"></div>
+            <p>Acceso empresarial para operaciones, renovaciones y cotizaciones.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    left, center, right = st.columns([1.4, 1, 1.4])
+
+    left, center, right = st.columns([1.35, 1, 1.35])
     with center:
         with st.form("login_form"):
             username = st.text_input("Usuario")
             password = st.text_input("Contrasena", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
             if submitted:
-                if check_credentials(username, password):
+                user = authenticate_user(username, password)
+                if user:
                     st.session_state.authenticated = True
-                    st.session_state.username = username
+                    st.session_state.username = user["username"]
+                    st.session_state.is_admin = user["is_admin"]
+                    st.session_state.active_mode = "accesos" if user["is_admin"] else "emisiones"
                     st.rerun()
                 st.error("Credenciales invalidas.")
 
+    st.markdown(
+        f"""
+        <div class="login-footnote">
+            Administrador fijo: <strong>{DEFAULT_ADMIN_USERNAME}</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_header():
-    left, right = st.columns([7, 1.5], gap="small")
+    left, right = st.columns([6.3, 1.7], gap="medium")
+
     with left:
         st.markdown(
             """
@@ -132,19 +149,33 @@ def render_header():
             """,
             unsafe_allow_html=True,
         )
+
     with right:
-        st.markdown(f"<div class='user-chip'>{st.session_state.username}</div>", unsafe_allow_html=True)
+        role_label = "Administrador" if st.session_state.is_admin else "Usuario"
+        st.markdown(
+            f"""
+            <div class="account-shell">
+                <div class="account-name">{st.session_state.username}</div>
+                <div class="account-role">{role_label}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         if st.button("Salir", use_container_width=True, key="logout"):
             st.session_state.authenticated = False
             st.session_state.username = ""
+            st.session_state.is_admin = False
+            st.session_state.active_mode = "emisiones"
             reset_single()
             st.rerun()
 
 
 def render_mode_selector():
-    cols = st.columns(len(MODES), gap="small")
+    modes = available_modes()
+    cols = st.columns(len(modes), gap="small")
     active_key = st.session_state.active_mode
-    for col, mode in zip(cols, MODES):
+
+    for col, mode in zip(cols, modes):
         with col:
             if st.button(
                 mode["label"],
@@ -201,8 +232,16 @@ def calculate_quality_score(df, report_type):
     return round((passed_checks / total_checks) * 100) if total_checks else 0
 
 
-def render_section_heading(title):
-    st.markdown(f"<div class='section-title'>{title}</div>", unsafe_allow_html=True)
+def render_section_heading(title: str, subtitle: str):
+    st.markdown(
+        f"""
+        <div class="section-shell">
+            <div class="section-title">{title}</div>
+            <div class="section-subtitle">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_file_list(files):
@@ -217,7 +256,7 @@ def render_file_list(files):
 
 def render_template_status(report_cfg, template_file):
     if template_file is not None:
-        st.markdown(f"<div class='template-chip'>Plantilla: {template_file.name}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='template-chip'>Plantilla cargada: {template_file.name}</div>", unsafe_allow_html=True)
         return
 
     default_name = os.path.basename(report_cfg.get("template_path", "plantilla interna"))
@@ -263,7 +302,7 @@ def render_preview(df, key_prefix):
             )
             counts = df[chart_col].replace("", "Sin dato").value_counts().reset_index()
             counts.columns = [chart_col, "Cantidad"]
-            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad", color_discrete_sequence=["#9f1239"])
+            fig = px.bar(counts.head(12), x=chart_col, y="Cantidad", color_discrete_sequence=["#c1121f"])
             fig.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -320,7 +359,8 @@ def render_single_flow():
     report_cfg = get_report_config()
     source_types = [ext.lstrip(".") for ext in report_cfg.get("input_extensions", [".xlsx", ".xls"])]
 
-    render_section_heading(mode["label"])
+    render_section_heading(mode["label"], "Carga el archivo fuente, aplica la plantilla y descarga el resultado final.")
+
     source_col, template_col = st.columns([1.8, 1], gap="large")
 
     with source_col:
@@ -372,24 +412,97 @@ def render_single_flow():
         render_preview(st.session_state.processed_df, mode["key"])
 
 
+def render_access_panel():
+    if not st.session_state.is_admin:
+        st.warning("Solo el administrador puede gestionar cuentas.")
+        return
+
+    render_section_heading("Accesos", "Montse administra el alta de usuarios desde esta pestaña.")
+
+    feedback = st.session_state.get("access_feedback")
+    if feedback:
+        if feedback["kind"] == "success":
+            st.success(feedback["message"])
+        else:
+            st.error(feedback["message"])
+
+    summary_col1, summary_col2, summary_col3 = st.columns(3, gap="small")
+    users = user_store.list_users()
+    summary_col1.metric("Usuarios", len(users))
+    summary_col2.metric("Activos", sum(1 for user in users if user["active"]))
+    summary_col3.metric("Admins", sum(1 for user in users if user["is_admin"]))
+
+    create_col, list_col = st.columns([1, 1.25], gap="large")
+
+    with create_col:
+        st.markdown(
+            """
+            <div class="admin-note">
+                <div class="admin-note-title">Alta de cuenta</div>
+                <div class="admin-note-copy">El usuario administrador fijo es montse. Las cuentas nuevas se crean como usuarios normales.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("create_user_form", clear_on_submit=True):
+            username = st.text_input("Nuevo usuario")
+            password = st.text_input("Contrasena temporal", type="password")
+            confirm = st.text_input("Confirmar contrasena", type="password")
+            submitted = st.form_submit_button("Crear cuenta", use_container_width=True, type="primary")
+            if submitted:
+                if password != confirm:
+                    set_access_feedback("error", "Las contrasenas no coinciden.")
+                else:
+                    try:
+                        created = user_store.create_user(username, password, created_by=st.session_state.username)
+                        set_access_feedback("success", f"Cuenta creada: {created['username']}")
+                    except ValueError as exc:
+                        set_access_feedback("error", str(exc))
+                st.rerun()
+
+    with list_col:
+        table = pd.DataFrame(users)
+        if not table.empty:
+            table["rol"] = table["is_admin"].map(lambda value: "Administrador" if value else "Usuario")
+            table["estado"] = table["active"].map(lambda value: "Activo" if value else "Inactivo")
+            table["creado"] = (
+                pd.to_datetime(table["created_at"], errors="coerce")
+                .dt.tz_convert(None)
+                .dt.strftime("%d/%m/%Y %H:%M")
+                .fillna("")
+            )
+            table["creado_por"] = table["created_by"].fillna("").replace("", "system")
+            view = table[["username", "rol", "estado", "creado_por", "creado"]].rename(
+                columns={
+                    "username": "Usuario",
+                    "rol": "Rol",
+                    "estado": "Estado",
+                    "creado_por": "Creado por",
+                    "creado": "Alta",
+                }
+            )
+            st.dataframe(view, use_container_width=True, hide_index=True, height=360)
+
+
 st.set_page_config(page_title="Montse Reportes", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
     :root {
         --bg: #ffffff;
-        --surface: #ffffff;
-        --surface-soft: #fafafa;
-        --surface-strong: #ffffff;
-        --ink: #111827;
+        --surface: rgba(255,255,255,0.78);
+        --surface-soft: rgba(255,255,255,0.62);
+        --surface-strong: rgba(255,255,255,0.92);
+        --ink: #121826;
         --muted: #6b7280;
-        --line: #e5e7eb;
+        --line: rgba(15, 23, 42, 0.11);
         --accent: #c1121f;
         --accent-deep: #9f1239;
-        --shadow: 0 20px 40px rgba(17, 24, 39, 0.06);
+        --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+        --glass-shadow: 0 24px 50px rgba(15, 23, 42, 0.09);
     }
 
     html, body, [class*="css"] {
@@ -397,7 +510,9 @@ st.markdown(
     }
 
     .stApp {
-        background: var(--bg);
+        background:
+            radial-gradient(circle at top right, rgba(193,18,31,0.06), rgba(193,18,31,0) 28%),
+            linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
         color: var(--ink);
     }
 
@@ -408,24 +523,43 @@ st.markdown(
         left: 0;
         right: 0;
         height: 4px;
-        background: var(--accent);
+        background: linear-gradient(90deg, var(--accent) 0%, #ef4444 65%, var(--accent-deep) 100%);
         z-index: 9999;
     }
 
     .block-container {
-        max-width: 1180px;
-        padding-top: 2.35rem;
-        padding-bottom: 2.4rem;
+        max-width: 1220px;
+        padding-top: 2.4rem;
+        padding-bottom: 2.8rem;
     }
 
-    .login-shell,
-    .header-shell {
-        margin-bottom: 1rem;
+    @keyframes revealUp {
+        from {
+            opacity: 0;
+            transform: translateY(18px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes pulseLine {
+        0% {
+            transform: scaleY(0.9);
+            opacity: 0.78;
+        }
+        100% {
+            transform: scaleY(1.08);
+            opacity: 1;
+        }
     }
 
     .login-shell {
         text-align: center;
         margin-top: 5rem;
+        margin-bottom: 1.4rem;
+        animation: revealUp 520ms ease both;
     }
 
     .login-kicker,
@@ -437,29 +571,43 @@ st.markdown(
         color: var(--accent);
     }
 
-    .login-shell h1 {
-        margin: 0.35rem 0 0.65rem 0;
-        font-size: 2.7rem;
+    .login-shell h1,
+    .header-copy h1 {
+        margin: 0.35rem 0 0 0;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 2.45rem;
         line-height: 1.02;
-        letter-spacing: -0.04em;
+        letter-spacing: -0.05em;
         color: var(--ink);
     }
 
-    .login-rule {
-        width: 88px;
-        height: 4px;
-        margin: 0 auto;
-        border-radius: 999px;
-        background: var(--accent);
+    .login-shell p {
+        max-width: 520px;
+        margin: 0.8rem auto 0 auto;
+        color: var(--muted);
+        font-size: 0.97rem;
+    }
+
+    .login-footnote {
+        margin-top: 1rem;
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.9rem;
     }
 
     .header-shell {
         display: flex;
         align-items: center;
         gap: 1rem;
-        min-height: 5.2rem;
-        padding: 0.15rem 0 1.1rem 0;
-        border-bottom: 1px solid var(--line);
+        min-height: 5.3rem;
+        padding: 1rem 1.15rem;
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.72) 100%);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        box-shadow: var(--glass-shadow);
+        animation: revealUp 480ms ease both;
     }
 
     .header-accent {
@@ -467,52 +615,100 @@ st.markdown(
         height: 56px;
         border-radius: 999px;
         background: linear-gradient(180deg, var(--accent) 0%, var(--accent-deep) 100%);
+        animation: pulseLine 1600ms ease-in-out infinite alternate;
     }
 
-    .header-copy h1 {
-        margin: 0.18rem 0 0 0;
-        font-size: 2.15rem;
-        line-height: 1.02;
-        letter-spacing: -0.05em;
-        color: var(--ink);
+    .header-copy {
+        display: grid;
+        gap: 0.1rem;
     }
 
-    .user-chip {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 2.95rem;
-        margin-top: 0.7rem;
+    .account-shell {
+        display: grid;
+        gap: 0.2rem;
+        padding: 0.95rem 1rem;
+        margin-top: 0.15rem;
         margin-bottom: 0.55rem;
-        border-radius: 16px;
         border: 1px solid var(--line);
-        background: var(--surface-soft);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.7) 100%);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+        animation: revealUp 560ms ease both;
+    }
+
+    .account-name {
+        font-size: 0.96rem;
+        font-weight: 700;
         color: var(--ink);
-        font-size: 0.92rem;
+    }
+
+    .account-role {
+        font-size: 0.82rem;
         font-weight: 600;
+        color: var(--accent);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .section-shell {
+        margin: 1.75rem 0 0.95rem 0;
+        animation: revealUp 620ms ease both;
     }
 
     .section-title {
-        margin: 1.75rem 0 0.95rem 0;
-        font-size: 1.45rem;
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.5rem;
         font-weight: 700;
-        letter-spacing: -0.03em;
+        letter-spacing: -0.04em;
         color: var(--ink);
+    }
+
+    .section-subtitle {
+        margin-top: 0.28rem;
+        font-size: 0.94rem;
+        color: var(--muted);
     }
 
     .panel-label {
         margin-bottom: 0.55rem;
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         font-weight: 700;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.14em;
         text-transform: uppercase;
         color: var(--muted);
+    }
+
+    .admin-note {
+        margin-bottom: 0.9rem;
+        padding: 1rem 1.05rem;
+        border: 1px solid rgba(193,18,31,0.14);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,247,248,0.76) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        box-shadow: var(--shadow);
+    }
+
+    .admin-note-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--ink);
+    }
+
+    .admin-note-copy {
+        margin-top: 0.35rem;
+        font-size: 0.9rem;
+        color: var(--muted);
+        line-height: 1.5;
     }
 
     .file-list {
         display: grid;
         gap: 0.5rem;
         margin-top: 0.9rem;
+        animation: revealUp 700ms ease both;
     }
 
     .file-pill,
@@ -520,12 +716,15 @@ st.markdown(
         display: flex;
         justify-content: space-between;
         gap: 1rem;
-        padding: 0.85rem 1rem;
-        border-radius: 16px;
+        padding: 0.88rem 1rem;
+        border-radius: 18px;
         border: 1px solid var(--line);
-        background: var(--surface-soft);
+        background: linear-gradient(180deg, rgba(255,255,255,0.84) 0%, rgba(255,255,255,0.68) 100%);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         color: var(--ink);
         font-size: 0.9rem;
+        box-shadow: var(--shadow);
     }
 
     .template-chip {
@@ -537,53 +736,74 @@ st.markdown(
     }
 
     div[data-testid="stFileUploaderDropzone"] {
-        border-radius: 20px;
-        border: 1px dashed #d1d5db;
-        background: var(--surface);
+        border-radius: 22px;
+        border: 1px dashed rgba(15, 23, 42, 0.14);
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.7) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         padding: 1.15rem;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+        box-shadow: var(--shadow);
+    }
+
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="base-input"] {
+        border-radius: 18px !important;
+        border-color: var(--line) !important;
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.72) 100%) !important;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        box-shadow: var(--shadow);
     }
 
     div[data-testid="stButton"] button,
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stFileUploaderDropzone"] button,
     div[data-testid="stFormSubmitButton"] button {
-        min-height: 2.95rem;
-        border-radius: 14px;
+        min-height: 3rem;
+        border-radius: 16px;
         font-weight: 700;
         border: 1px solid var(--line);
-        transition: all 180ms ease;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
     }
 
     div[data-testid="stButton"] button[kind="primary"],
     div[data-testid="stFormSubmitButton"] button[kind="primary"] {
-        background: var(--accent);
-        border-color: var(--accent);
+        background: linear-gradient(180deg, rgba(193,18,31,0.95) 0%, rgba(159,18,57,0.95) 100%);
+        border-color: rgba(193,18,31,0.7);
         color: #ffffff;
-        box-shadow: 0 14px 30px rgba(193, 18, 31, 0.18);
+        box-shadow: 0 18px 35px rgba(193,18,31,0.18);
     }
 
     div[data-testid="stButton"] button[kind="secondary"],
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stFileUploaderDropzone"] button {
-        background: var(--surface-strong);
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.72) 100%);
         color: var(--ink);
+        box-shadow: var(--shadow);
     }
 
     div[data-testid="stButton"] button:hover,
     div[data-testid="stDownloadButton"] button:hover,
     div[data-testid="stFileUploaderDropzone"] button:hover,
     div[data-testid="stFormSubmitButton"] button:hover {
-        border-color: #d1d5db;
         transform: translateY(-1px);
+        box-shadow: 0 22px 44px rgba(15, 23, 42, 0.12);
     }
 
     div[data-testid="stMetric"] {
-        border-radius: 18px;
+        border-radius: 20px;
         border: 1px solid var(--line);
-        background: var(--surface-strong);
+        background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.75) 100%);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         padding: 0.4rem 0.6rem;
         box-shadow: var(--shadow);
+    }
+
+    div[data-testid="stForm"] {
+        padding: 0.2rem 0 0 0;
     }
 
     div[data-testid="stTabs"] button {
@@ -591,27 +811,26 @@ st.markdown(
     }
 
     div[data-testid="stAlert"] {
-        border-radius: 16px;
+        border-radius: 18px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
     }
 
     div[data-testid="stDataFrame"] {
-        border-radius: 16px;
+        border-radius: 18px;
         overflow: hidden;
         border: 1px solid var(--line);
+        box-shadow: var(--shadow);
     }
 
-    @media (max-width: 900px) {
-        .header-copy h1 {
-            font-size: 1.8rem;
+    @media (max-width: 960px) {
+        .header-copy h1,
+        .login-shell h1 {
+            font-size: 2rem;
         }
 
         .header-shell {
             min-height: auto;
-            padding-bottom: 0.9rem;
-        }
-
-        .user-chip {
-            margin-top: 0.15rem;
         }
     }
     </style>
@@ -627,4 +846,8 @@ if not st.session_state.authenticated:
 
 render_header()
 render_mode_selector()
-render_single_flow()
+
+if get_mode()["key"] == "accesos":
+    render_access_panel()
+else:
+    render_single_flow()
