@@ -96,8 +96,9 @@ def render_login():
     st.markdown(
         """
         <div class="login-shell">
-            <div class="eyebrow">Montse</div>
-            <h1>Reportes</h1>
+            <div class="login-kicker">Plataforma Interna</div>
+            <h1>Reportes Comerciales</h1>
+            <div class="login-rule"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -121,9 +122,12 @@ def render_header():
     with left:
         st.markdown(
             """
-            <div class="hero-shell">
-                <div class="eyebrow">Montse</div>
-                <h1>Reportes</h1>
+            <div class="header-shell">
+                <div class="header-accent"></div>
+                <div class="header-copy">
+                    <div class="header-kicker">Plataforma Interna</div>
+                    <h1>Reportes Comerciales</h1>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -138,17 +142,18 @@ def render_header():
 
 
 def render_mode_selector():
-    selected = st.segmented_control(
-        "Modulo",
-        options=[mode["label"] for mode in MODES],
-        default=get_mode()["label"],
-        selection_mode="single",
-        label_visibility="collapsed",
-    )
-    selected_key = LABEL_TO_KEY.get(selected, st.session_state.active_mode)
-    if selected_key != st.session_state.active_mode:
-        activate_mode(selected_key)
-        st.rerun()
+    cols = st.columns(len(MODES), gap="small")
+    active_key = st.session_state.active_mode
+    for col, mode in zip(cols, MODES):
+        with col:
+            if st.button(
+                mode["label"],
+                key=f"nav_{mode['key']}",
+                type="primary" if mode["key"] == active_key else "secondary",
+                use_container_width=True,
+            ):
+                activate_mode(mode["key"])
+                st.rerun()
 
 
 def format_bytes(size):
@@ -372,60 +377,103 @@ st.set_page_config(page_title="Montse Reportes", layout="wide", initial_sidebar_
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
     :root {
-        --bg-top: #fff5f5;
-        --bg-bottom: #f7e7ea;
-        --surface: rgba(255,255,255,0.78);
-        --surface-strong: rgba(255,255,255,0.92);
-        --ink: #881337;
-        --muted: #8f3b56;
-        --line: rgba(136, 19, 55, 0.14);
+        --bg: #ffffff;
+        --surface: #ffffff;
+        --surface-soft: #fafafa;
+        --surface-strong: #ffffff;
+        --ink: #111827;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #c1121f;
+        --accent-deep: #9f1239;
+        --shadow: 0 20px 40px rgba(17, 24, 39, 0.06);
     }
 
     html, body, [class*="css"] {
-        font-family: 'Manrope', sans-serif;
+        font-family: 'IBM Plex Sans', sans-serif;
     }
 
     .stApp {
-        background:
-            radial-gradient(circle at top left, rgba(255,255,255,0.95), rgba(255,255,255,0) 34%),
-            linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+        background: var(--bg);
         color: var(--ink);
+    }
+
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--accent);
+        z-index: 9999;
     }
 
     .block-container {
         max-width: 1180px;
-        padding-top: 2rem;
+        padding-top: 2.35rem;
         padding-bottom: 2.4rem;
     }
 
     .login-shell,
-    .hero-shell {
+    .header-shell {
         margin-bottom: 1rem;
     }
 
     .login-shell {
         text-align: center;
-        margin-top: 4.6rem;
+        margin-top: 5rem;
     }
 
-    .eyebrow {
+    .login-kicker,
+    .header-kicker {
         font-size: 0.78rem;
-        font-weight: 800;
+        font-weight: 700;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-        color: var(--muted);
+        color: var(--accent);
     }
 
-    .login-shell h1,
-    .hero-shell h1 {
-        margin: 0.2rem 0 0 0;
-        font-family: 'Fraunces', serif;
-        font-size: 2.6rem;
-        line-height: 1;
+    .login-shell h1 {
+        margin: 0.35rem 0 0.65rem 0;
+        font-size: 2.7rem;
+        line-height: 1.02;
         letter-spacing: -0.04em;
+        color: var(--ink);
+    }
+
+    .login-rule {
+        width: 88px;
+        height: 4px;
+        margin: 0 auto;
+        border-radius: 999px;
+        background: var(--accent);
+    }
+
+    .header-shell {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        min-height: 5.2rem;
+        padding: 0.15rem 0 1.1rem 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .header-accent {
+        width: 6px;
+        height: 56px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--accent) 0%, var(--accent-deep) 100%);
+    }
+
+    .header-copy h1 {
+        margin: 0.18rem 0 0 0;
+        font-size: 2.15rem;
+        line-height: 1.02;
+        letter-spacing: -0.05em;
         color: var(--ink);
     }
 
@@ -433,21 +481,21 @@ st.markdown(
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 2.85rem;
-        margin-top: 0.55rem;
-        margin-bottom: 0.45rem;
-        border-radius: 999px;
+        min-height: 2.95rem;
+        margin-top: 0.7rem;
+        margin-bottom: 0.55rem;
+        border-radius: 16px;
         border: 1px solid var(--line);
-        background: var(--surface);
+        background: var(--surface-soft);
         color: var(--ink);
         font-size: 0.92rem;
-        font-weight: 700;
+        font-weight: 600;
     }
 
     .section-title {
-        margin: 1.45rem 0 0.85rem 0;
-        font-family: 'Fraunces', serif;
-        font-size: 1.5rem;
+        margin: 1.75rem 0 0.95rem 0;
+        font-size: 1.45rem;
+        font-weight: 700;
         letter-spacing: -0.03em;
         color: var(--ink);
     }
@@ -455,7 +503,7 @@ st.markdown(
     .panel-label {
         margin-bottom: 0.55rem;
         font-size: 0.8rem;
-        font-weight: 800;
+        font-weight: 700;
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--muted);
@@ -472,10 +520,10 @@ st.markdown(
         display: flex;
         justify-content: space-between;
         gap: 1rem;
-        padding: 0.8rem 0.95rem;
-        border-radius: 18px;
+        padding: 0.85rem 1rem;
+        border-radius: 16px;
         border: 1px solid var(--line);
-        background: var(--surface);
+        background: var(--surface-soft);
         color: var(--ink);
         font-size: 0.9rem;
     }
@@ -489,38 +537,30 @@ st.markdown(
     }
 
     div[data-testid="stFileUploaderDropzone"] {
-        border-radius: 24px;
-        border: 1px dashed rgba(136, 19, 55, 0.24);
+        border-radius: 20px;
+        border: 1px dashed #d1d5db;
         background: var(--surface);
-        padding: 1.1rem;
-    }
-
-    div[data-testid="stSegmentedControl"] {
-        margin-bottom: 0.7rem;
-    }
-
-    div[data-testid="stSegmentedControl"] button {
-        min-height: 2.85rem;
-        border-radius: 999px;
-        font-weight: 700;
+        padding: 1.15rem;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
     }
 
     div[data-testid="stButton"] button,
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stFileUploaderDropzone"] button,
     div[data-testid="stFormSubmitButton"] button {
-        min-height: 2.9rem;
-        border-radius: 999px;
+        min-height: 2.95rem;
+        border-radius: 14px;
         font-weight: 700;
         border: 1px solid var(--line);
+        transition: all 180ms ease;
     }
 
     div[data-testid="stButton"] button[kind="primary"],
     div[data-testid="stFormSubmitButton"] button[kind="primary"] {
-        background: var(--ink);
-        border-color: var(--ink);
+        background: var(--accent);
+        border-color: var(--accent);
         color: #ffffff;
-        box-shadow: 0 16px 34px rgba(136, 19, 55, 0.18);
+        box-shadow: 0 14px 30px rgba(193, 18, 31, 0.18);
     }
 
     div[data-testid="stButton"] button[kind="secondary"],
@@ -530,24 +570,49 @@ st.markdown(
         color: var(--ink);
     }
 
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stDownloadButton"] button:hover,
+    div[data-testid="stFileUploaderDropzone"] button:hover,
+    div[data-testid="stFormSubmitButton"] button:hover {
+        border-color: #d1d5db;
+        transform: translateY(-1px);
+    }
+
     div[data-testid="stMetric"] {
-        border-radius: 22px;
+        border-radius: 18px;
         border: 1px solid var(--line);
         background: var(--surface-strong);
-        padding: 0.35rem 0.55rem;
+        padding: 0.4rem 0.6rem;
+        box-shadow: var(--shadow);
     }
 
     div[data-testid="stTabs"] button {
-        border-radius: 999px;
+        border-radius: 14px;
     }
 
     div[data-testid="stAlert"] {
-        border-radius: 18px;
+        border-radius: 16px;
     }
 
     div[data-testid="stDataFrame"] {
-        border-radius: 20px;
+        border-radius: 16px;
         overflow: hidden;
+        border: 1px solid var(--line);
+    }
+
+    @media (max-width: 900px) {
+        .header-copy h1 {
+            font-size: 1.8rem;
+        }
+
+        .header-shell {
+            min-height: auto;
+            padding-bottom: 0.9rem;
+        }
+
+        .user-chip {
+            margin-top: 0.15rem;
+        }
     }
     </style>
     """,
